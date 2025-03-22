@@ -2,16 +2,8 @@ import httpx
 import json
 import logging
 
-from rich.logging import RichHandler
 from typing import Coroutine, Self
 
-# Set up logging. Select INFO, DEBUG, WARNING, ERROR, CRITICAL
-logging.basicConfig(
-    level="DEBUG",
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True)]
-)
 log = logging.getLogger("rich")
 
 class Suplex:
@@ -42,11 +34,11 @@ class Suplex:
     refresh_token: str
     headers: dict
 
-    _table: str
-    _filters: str
-    _select: str
-    _method: str
-    _data: dict
+    _table: str = ""
+    _filters: str = ""
+    _select: str = ""
+    _method: str = ""
+    _data: dict = {}
 
     def __init__(
             self,
