@@ -1,0 +1,10 @@
+[project]
+name = "suplex"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "reflex>=0.7.3",
+]
