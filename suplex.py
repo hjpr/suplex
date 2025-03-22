@@ -14,19 +14,24 @@ class Suplex:
     Use auth module to retrieve the access token to use this class
     as a user.
 
-    Basic UNSAFE admin format is :
-    supabase = Suplex(
-        api_url="api-url-from-env",
-        api_key="api-key-from-env",
-        service_role="service-role-from-env"
-    )
+    Basic UNSAFE admin example is:
+        supabase = Suplex(
+            api_url="api-url-from-env",
+            api_key="api-key-from-env",
+            service_role="service-role-from-env"
+        )
+        response = supabase.table("foo").select("*").execute()
 
-    Basic SAFE user format is:
-    supabase = Suplex(
-        api_url="api-url-from-env",
-        api_key="api-key-from-env",
-        access_token="access-token-from-user"
-    )
+    Basic SAFE user example is:
+        supabase = Suplex(
+            api_url="api-url-from-env",
+            api_key="api-key-from-env",
+        )
+        supabase.auth.sign_in_with_password()
+        response = supabase.table("foo").select("*").execute()
+
+    While in user mode, if no rows are returned and everything else is
+    correct, check the Row Level Security (RLS) policies on the table.
     """
     api_url: str
     api_key: str
@@ -56,6 +61,8 @@ class Suplex:
             "apikey": api_key,
             "Authorization": f"Bearer {access_token if access_token else service_role}",
         }
+        if not access_token and not service_role:
+            raise ValueError("Either access_token or service_role must be provided.")
 
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
