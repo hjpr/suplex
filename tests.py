@@ -60,9 +60,9 @@ def run_tests():
 
                 progress.update(main_task, advance=1)
 
-    except AssertionError as e:
+    except AssertionError:
         console.print_exception()
-    except Exception as e:
+    except Exception:
         console.print_exception()
     else:
         progress.console.print("\n[bold green]🎂 THIS WAS A TRIUMPH. 🎂[/bold green]")
