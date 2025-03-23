@@ -23,14 +23,14 @@ class Suplex():
     Use auth module to retrieve the access token to use this class
     as a user.
 
-    Table Methods:
+    Table Methods - https://supabase.com/docs/reference/python/select:
         .select()
         .insert()
         .upsert()
         .update()
         .delete()
 
-    Filter Methods:
+    Filter Methods - https://supabase.com/docs/reference/python/using-filters:
         .eq()
         .neq()
         .gt()
@@ -40,17 +40,27 @@ class Suplex():
         .like()
         .ilike()
         .is_()
+        .in_()
         .contains()
         .contained_by()
+        
+    Modifiers - https://supabase.com/docs/reference/python/using-modifiers:
+        .order()
+        .limit()
+        .range()
+        .single()
+        .maybe_single()
+        .csv()
+        .explain()
 
     Example Usages:
         Admin - UNSAFE. Can read/write to/from any table.:
-            supabase = Suplex("api-url-from-env", "api-key-from-env",service_role="service-role-from-env")
+            supabase = Suplex("api-url-from-env","api-key-from-env",service_role="service-role-from-env")
             sync_response = supabase.table("foo").select("*").execute()
             async_response = await supabase.table("foo").select("*").async_execute()
     
         User - SAFE. Limited to scope of the 'role' in the JWT token.:
-            supabase = Suplex()"api-url-from-env", "api-key-from-env")
+            supabase = Suplex()"api-url-from-env","api-key-from-env")
             supabase.auth.sign_in_with_password()
             sync_response = supabase.table("foo").select("*").execute()
             async_response = await supabase.table("foo").select("*").async_execute()
@@ -97,42 +107,66 @@ class Suplex():
         return self
 
     def eq(self, column: str, value: Any) -> Self:
-        """Match only rows where column is equal to value."""
+        """
+        Match only rows where column is equal to value.
+        https://supabase.com/docs/reference/python/eq
+        """
         self._filters = f"{column}=eq.{value}"
         return self
     
     def neq(self, column: str, value: Any) -> Self:
-        """Match only rows where column is not equal to value."""
+        """
+        Match only rows where column is not equal to value.
+        https://supabase.com/docs/reference/python/neq
+        """
         self._filters = f"{column}=neq.{value}"
         return self
     
     def gt(self, column: str, value: Any) -> Self:
-        """Match only rows where column is greater than value."""
+        """
+        Match only rows where column is greater than value.
+        https://supabase.com/docs/reference/python/gt
+        """
         self._filters = f"{column}=gt.{value}"
         return self
     
     def lt(self, column: str, value: Any) -> Self:
-        """Match only rows where column is less than value."""
+        """
+        Match only rows where column is less than value.
+        https://supabase.com/docs/reference/python/lt
+        """
         self._filters = f"{column}=lt.{value}"
         return self
     
     def gte(self, column: str, value: Any) -> Self:
-        """Match only rows where column is greater than or equal to value."""
+        """
+        Match only rows where column is greater than or equal to value.
+        https://supabase.com/docs/reference/python/gte
+        """
         self._filters = f"{column}=gte.{value}"
         return self
     
     def lte(self, column: str, value: Any) -> Self:
-        """Match only rows where column is less than or equal to value."""
+        """
+        Match only rows where column is less than or equal to value.
+        https://supabase.com/docs/reference/python/lte
+        """
         self._filters = f"{column}=lte.{value}"
         return self
     
     def like(self, column: str, pattern: str) -> Self:
-        """Match only rows where column matches pattern case-sensitively."""
+        """
+        Match only rows where column matches pattern case-sensitively.
+        https://supabase.com/docs/reference/python/like
+        """
         self._filters = f"{column}=like.{pattern}"
         return self
     
     def ilike(self, column: str, pattern: str) -> Self:
-        """Match only rows where column matches pattern case-insensitively."""
+        """
+        Match only rows where column matches pattern case-insensitively.
+        https://supabase.com/docs/reference/python/ilike
+        """
         self._filters = f"{column}=ilike.{pattern}"
         return self
     
@@ -140,6 +174,7 @@ class Suplex():
         """
         Match only rows where column is null or bool.
         Use this instead of eq() for null values.
+        https://supabase.com/docs/reference/python/is
         """
         self._filters = f"{column}=is.{value}"
         return self
@@ -147,7 +182,7 @@ class Suplex():
     def in_(self, column: str, values: list) -> Self:
         """
         Match only rows where column is in the list of values.
-        e.g. the row's column must be one of the given list.
+        https://supabase.com/docs/reference/python/in
         """
         formatted = ",".join(quote(f'"{v}"') for v in values)
         self._filters = f"{column}=in.({formatted})"
@@ -157,7 +192,7 @@ class Suplex():
         """
         Only relevant for jsonb, array, and range columns.
         Match only rows where column contains every element appearing in values.
-        e.g. the row's array must contain all elements in the given list.
+        https://supabase.com/docs/reference/python/contains
         """
         formatted = ",".join(quote(f'"{v}"') for v in values)
         self._filters = f"{array_column}=cs.{{{formatted}}}"
@@ -167,14 +202,17 @@ class Suplex():
         """
         Only relevant for jsonb, array, and range columns.
         Match only rows where every element appearing in column is contained by value.
-        e.g. the row's array must be a subset of the given list. 
+        https://supabase.com/docs/reference/python/containedby
         """
         formatted = ",".join(quote(f'"{v}"') for v in values)
         self._filters = f"{array_column}=cd.{{{formatted}}}"
         return self
     
     def select(self, select: str) -> Self:
-        """Specify columns to return, or '*' to return all."""
+        """
+        Specify columns to return, or '*' to return all.
+        https://supabase.com/docs/reference/python/select
+        """
         self._select = f"select={select}"
         self._method = "get"
         return self
@@ -183,6 +221,7 @@ class Suplex():
         """
         Add new item to table as {'column': 'value', 'other_column': 'other_value'}
         or new items as [{'column': 'value'}, {'other_column': 'other_value'}]
+        https://supabase.com/docs/reference/python/insert
         """
         self._data = json.dumps(data)
         self._method = "post"
@@ -192,7 +231,7 @@ class Suplex():
         """
         Add item to table as {'column': 'value', 'other_column': 'other_value'}
         if it doesn't exist, otherwise update item. One column must be a primary key.
-        Returns updated values unless return_ is set to 'minimal'.
+        https://supabase.com/docs/reference/python/upsert
         """
         self._data = json.dumps(data)
         self._method = "post"
@@ -203,7 +242,7 @@ class Suplex():
         """
         Update lets you update rows. update will match all rows by default.
         You can update specific rows using horizontal filters, e.g. eq, lt, and is.
-        Update will also return the replaced values.
+        https://supabase.com/docs/reference/python/update
         """
         self.headers["Prefer"] = "return=representation"
         self._method = "patch"
@@ -211,14 +250,64 @@ class Suplex():
         return self
     
     def delete(self) -> Self:
-        """Delete matching rows from the table. Matches all rows by default! Use filters to specify."""
+        """
+        Delete matching rows from the table. Matches all rows by default! Use filters to specify.
+        https://supabase.com/docs/reference/python/delete
+        """
         self._method = "delete"
         return self
     
     def order(self, column: str, ascending: bool = True) -> Self:
-        """Order the query result by column. Defaults to ascending order (lowest to highest)."""
+        """
+        Order the query result by column. Defaults to ascending order (lowest to highest).
+        https://supabase.com/docs/reference/python/order
+        """
         self._order = f"order={column}.{('asc' if ascending else 'desc')}"
         return self
+    
+    def limit(self, limit: int) -> Self:
+        """
+        Limit the number of rows returned.
+        https://supabase.com/docs/reference/python/limit
+        """
+        pass
+
+    def range(self, start: int, end: int) -> Self:
+        """
+        Limit the query result by starting at an offset (start) and ending at the offset (end). 
+        https://supabase.com/docs/reference/python/range
+        """
+        pass
+
+    def single(self) -> Self:
+        """
+        Return data as a single object instead of an array of objects.
+        Expects a single row to be returned. If exactly one row is not returned, an error is raised.
+        https://supabase.com/docs/reference/python/single
+        """
+        pass
+
+    def maybe_single(self) -> Self:
+        """
+        Return data as a single object instead of an array of objects.
+        Expects a single row to be returned. If no rows are returned, no error is raised.
+        https://supabase.com/docs/reference/python/maybesingle
+        """
+        pass
+
+    def csv(self) -> Self:
+        """
+        Return data as a string in CSV format.
+        https://supabase.com/docs/reference/python/csv
+        """
+        pass
+
+    def explain(self) -> Self:
+        """
+        For debugging slow queries, you can get the Postgres EXPLAIN execution plan
+        of a query using the explain() method.
+        https://supabase.com/docs/reference/python/explain
+        """
 
     def execute(self, **kwargs) -> httpx.Response:
         """
@@ -226,7 +315,6 @@ class Suplex():
         Requests use httpx.Client(). See list of available parameters to pass with
         request at https://www.python-httpx.org/api/#client
         """
-        # Build the request URL
         base_url = f"{self.api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
@@ -236,8 +324,6 @@ class Suplex():
         if self._order:
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
-        log.info("Executing a sync request to...")
-        log.info(f"URL: {url}")
 
         if self._method == "get":
             if not self._table:
@@ -247,13 +333,15 @@ class Suplex():
             response = httpx.get(url, headers=self.headers, **kwargs)
         elif self._method == "post":
             if not self._data:
-                raise ValueError("No data was provided for insert request.")
+                raise ValueError("Missing data for request.")
             response = httpx.post(url, headers=self.headers, data=self._data, **kwargs)
         elif self._method == "put":
             if not self._data:
-                raise ValueError("Data must be provided for PUT requests.")
+                raise ValueError("Missing data for request.")
             response = httpx.put(url, headers=self.headers, data=self._data, **kwargs)
         elif self._method == "patch":
+            if not self._data:
+                raise ValueError("Missing data for request.")
             response = httpx.patch(url, headers=self.headers, data=self._data, **kwargs)
         elif self._method == "delete":
             response = httpx.delete(url, headers=self.headers, **kwargs)
@@ -271,7 +359,6 @@ class Suplex():
         self._data = {}
 
         # Return the response
-        log.info("Sync request completed successfully.")
         return response
     
     async def async_execute(self, **kwargs) -> Coroutine:
@@ -280,7 +367,6 @@ class Suplex():
         Requests use httpx.AsyncClient(). See list of available parameters to pass with
         request at https://www.python-httpx.org/api/#asyncclient
         """
-        # Build the request URL
         base_url = f"{self.api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
@@ -290,8 +376,6 @@ class Suplex():
         if self._order:
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
-        log.info("Executing an async request to...")
-        log.info(f"URL: {url}")
 
         async with httpx.AsyncClient() as client:
             if self._method == "get":
@@ -302,13 +386,15 @@ class Suplex():
                 response = await client.get(url, headers=self.headers, **kwargs)
             elif self._method == "post":
                 if not self._data:
-                    raise ValueError("No data was provided for insert request.")
+                    raise ValueError("Missing data for request.")
                 response = await client.post(url, headers=self.headers, data=self._data, **kwargs)
             elif self._method == "put":
                 if not self._data:
-                    raise ValueError("Data must be provided for PUT requests.")
+                    raise ValueError("Missing data for request.")
                 response = await client.put(url, headers=self.headers, data=self._data **kwargs)
             elif self._method == "patch":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
                 response = await client.patch(url, headers=self.headers, data=self._data, **kwargs)
             elif self._method == "delete":
                 response = await client.delete(url, headers=self.headers, **kwargs)
@@ -326,5 +412,4 @@ class Suplex():
             self._data = {}
 
             # Return the response
-            log.info("Async request completed successfully.")
             return response
