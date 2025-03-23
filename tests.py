@@ -61,11 +61,13 @@ def run_tests():
                 progress.update(main_task, advance=1)
 
     except AssertionError:
+        progress.console.print("\n[bold red] The cake is a lie. [/bold red]")
         console.print_exception()
     except Exception:
+        progress.console.print("\n[bold red] That was a joke. HA HA. FAT CHANCE [/bold red]")
         console.print_exception()
     else:
-        progress.console.print("\n[bold green]🎂 THIS WAS A TRIUMPH. 🎂[/bold green]")
+        progress.console.print("\n[bold green] 🎂 This was a triumph. I'm making a note here: HUGE SUCCESS. 🎂 [/bold green]")
 
 
 def build_test_table(progress:Progress=None, task_id=None) -> None:
