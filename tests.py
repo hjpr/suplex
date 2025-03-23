@@ -6,7 +6,6 @@ import rich
 
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 from suplex import Suplex
 
@@ -18,24 +17,12 @@ api_url = os.getenv("api_url")
 api_key = os.getenv("api_key")
 service_role = os.getenv("service_role")
 
-# Set up logging. Select INFO, DEBUG, WARNING, ERROR, CRITICAL
-log = logging.getLogger("rich")
 
 supabase = Suplex(
     api_url=api_url,
     api_key=api_key,
     service_role=service_role
     )
-
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TimeElapsedColumn,
-)
-import time  # For simulating delays (optional)
-
 
 def run_tests():
     try:
