@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import logging
 import os
+import random
 import rich
 
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ api_url = str(os.getenv("api_url"))
 api_key = str(os.getenv("api_key"))
 jwt_secret = str(os.getenv("jwt_secret"))
 service_role = str(os.getenv("service_role"))
-env_email = str(os.getenv("user"))
+env_email = str(os.getenv("email"))
 env_password = str(os.getenv("password"))
 
 
@@ -32,8 +33,11 @@ supabase = Suplex(
 def run_user_tests():
     try:
         test_funcs = [
-            ("Signup...", signup_test, 1),
-            ("Login...", login_test, 1),
+            ("Settings...", settings_test, 1),
+            ("Login...", login_test, 2),
+            ("Get User...", get_user_test, 1),
+            ("Update User...", update_user_test, 2),
+            ("Logout...", logout_test, 1),
         ]
         with Progress(
             SpinnerColumn(),
@@ -60,30 +64,88 @@ def run_user_tests():
     else:
         progress.console.print("\n[bold green] 🎂 This was a triumph. I'm making a note here: HUGE SUCCESS. 🎂 [/bold green]")
 
-def signup_test(progress: Progress, task_id:TaskID) -> None:
-    response = supabase.auth.sign_up_with_email(
-        email=env_email,
-        password=env_password,
-        options={
-            "email_redirect_to": "localhost:3000/redirect_link",
-            "data": {
-                "test_data": "test_value",
-            },
-        },
-    )
+# def signup_test(progress: Progress, task_id:TaskID) -> None:
+#     response = supabase.auth.sign_up(
+#         email=env_email,
+#         password=env_password,
+#         options={
+#             "email_redirect_to": "localhost:3000/redirect_link",
+#             "data": {
+#                 "test_data": "test_value",
+#             },
+#         },
+#     )
     
-    rich.inspect(response)
-    rich.print(response.json())
+#     rich.inspect(response)
+#     rich.print(response.json())
+
+#     progress.update(task_id, advance=1)
+
+def settings_test(progress: Progress, task_id:TaskID) -> None:
+    settings = supabase.auth.get_settings()
+    assert settings["external"]["email"] == True, "Expected email to be enabled"
 
     progress.update(task_id, advance=1)
 
 def login_test(progress: Progress, task_id: TaskID) -> None:
-    supabase.auth.sign_in_with_password(email, password) # type: ignore
+    supabase.auth.sign_in_with_password(email=env_email, password=env_password) # type: ignore
     assert supabase.auth.access_token != "None", "Expected access token after login"
     assert supabase.auth.refresh_token != "None", "Expected refresh token after login"
 
     progress.update(task_id, advance=1)
 
+    response = supabase.auth.sign_in_with_oauth(
+        provider="google",
+        options={
+            "redirect_to": "localhost:3000/redirect_link",
+        },
+    )
+    assert response, f"Expected redirect after login but recieved {response}"
+
+    progress.update(task_id, advance=1)
+
+def get_user_test(progress: Progress, task_id: TaskID) -> None:
+    # Get remote user object.
+    user = supabase.auth.get_user()
+    assert user["email"] == env_email, f"Expected {env_email}, got {user['email']}"
+
+    # Get local JWT user object.
+    user = supabase.auth.get_user(supabase.auth.access_token)
+    assert user["email"] == env_email, f"Expected {env_email}, got {user['email']}"
+
+    progress.update(task_id, advance=1)
+
+def update_user_test(progress: Progress, task_id: TaskID) -> None:
+    # Update user data.
+    random_num = random.randrange(1, 1000)
+    data = {
+            "random": random_num
+        }
+    response = supabase.auth.update_user(user_metadata=data)
+    assert response["user_metadata"]["random"] == random_num, f"Expected {random_num}, got {response['data']['random']}"
+    
+    progress.update(task_id, advance=1)
+
+    # Verify the updated user data.
+    user = supabase.auth.get_user()
+    if user:
+        assert user["user_metadata"]["random"] == random_num, f"Expected {random_num}, got {user['user_metadata']['random']}"
+    else:
+        raise ValueError("User not found after update.")
+
+    progress.update(task_id, advance=1)
+
+def logout_test(progress: Progress, task_id: TaskID) -> None:
+    # Check if local tokens are removed.
+    supabase.auth.logout()
+    assert not supabase.auth.access_token, "Expected empty string after logout, got {supabase.auth.access_token}"
+    assert not supabase.auth.refresh_token, "Expected empty string after logout, got {supabase.auth.refresh_token}"
+
+    # Ensure no user object is returned. Expecting a ValueError.
+    user = supabase.auth.get_user()
+    assert not user, "Expected None after logout, got {user}"
+
+    progress.update(task_id, advance=1)
 
 def run_database_tests():
     try:
