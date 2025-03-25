@@ -90,11 +90,11 @@ source .venv/bin/activate
 uv sync
 ```
 
-5. Create a Supabase project, in dashboard create a new project.
+5. Supabase Account >>> Create New Project
 
-6. Open project, Go to Project Settings >> Data API
+6. Project >>> Project Settings >>> Data API
 
-7. Create a .env file at /suplex containing these keys.
+7. Create a .env file in suplex folder containing these keys found in Data API.
 
 ```md
 api_url = "your-api-url"
@@ -114,4 +114,4 @@ python test.py -d
 
 You should see a full table of garbage!
 
-I'm actively working on building a verifying this package as I'm using it in my own production. Check back later for the mostly full implementation!
+I'm actively working on building and verifying this package as I'm using it in my own production. Check back later for the mostly full implementation!
