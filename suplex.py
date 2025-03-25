@@ -1,36 +1,65 @@
 import httpx
 import json
-import logging
 import reflex as rx
 
-from typing import Any, Coroutine, Literal, Self
+from auth import Auth
+from rich.console import Console
+from typing import Any, Literal, Self
 from urllib.parse import quote
 
-log = logging.getLogger("rich")
-
-class Suplex():
+console = Console()
+        
+class Suplex(rx.Base):
     """
     Uses httpx clients to interact with Supabase REST API. To use or test in a locally hosted supabase instance, follow the guide at:
         https://supabase.com/docs/guides/self-hosting/docker
 
-    Otherwise you can find your api_url, api_key, service_role and jwt_secret in your project at
+    Otherwise you can find your api_url, api_key, service_role and jwt_secret in your project at:
         https://supabase.com/dashboard/projects:
             Project Settings > Data API > Project URL (api_url)
             Project Settings > Data API > Project API keys (api_key, service_role)
             Project Settings > Data API > JWT Settings (jwt_secret)
 
-    Pass service role only for debugging, testing, or admin use.
-    Use auth module to retrieve the access token to use this class
-    as a user.
+    Instatiating this class without specifying api_url, or api_key, will use the
+    environment variables api_url and api_key. For security purposes, you must manually
+    pass a service role.
 
-    Table Methods - https://supabase.com/docs/reference/python/select:
+    **Example:**
+    ```python
+        from suplex import Suplex
+        
+        # Instantiate class, use service role for admin, otherwise omit.
+        supabase = Suplex(
+            api_url="your-api-url",
+            api_key="your-api-key",
+            jwt_secret="your-jwt-secret",
+            service_role="your-service-role"
+        )
+
+        # If service role is provided, this request bypasses RLS policies.
+        response = supabase.table("your-table").select("*").execute()
+        data = response.json()
+
+        # Sign in user
+        supabase.auth.sign_in_with_password(
+            email="email",
+            password="password"
+        )
+
+        # Even if a service role is provided, after user sign in,
+        # all requests will use the access token and RLS policies will be enforced.
+        response = supabase.table("your-table").select("*").execute()
+        data = response.json()
+    ```
+
+    **Table Methods** - https://supabase.com/docs/reference/python/select:
         .select()
         .insert()
         .upsert()
         .update()
         .delete()
 
-    Filter Methods - https://supabase.com/docs/reference/python/using-filters:
+    **Filter Methods** - https://supabase.com/docs/reference/python/using-filters:
         .eq()
         .neq()
         .gt()
@@ -44,7 +73,7 @@ class Suplex():
         .contains()
         .contained_by()
         
-    Modifiers - https://supabase.com/docs/reference/python/using-modifiers:
+    **Modifiers**- https://supabase.com/docs/reference/python/using-modifiers:
         .order()
         .limit()
         .range()
@@ -53,19 +82,7 @@ class Suplex():
         .csv()
         .explain()
 
-    Example Usages:
-        Admin - UNSAFE. Can read/write to/from any table.:
-            supabase = Suplex("api-url-from-env","api-key-from-env",service_role="service-role-from-env")
-            sync_response = supabase.table("foo").select("*").execute()
-            async_response = await supabase.table("foo").select("*").async_execute()
-    
-        User - SAFE. Limited to scope of the 'role' in the JWT token.:
-            supabase = Suplex()"api-url-from-env","api-key-from-env")
-            supabase.auth.sign_in_with_password()
-            sync_response = supabase.table("foo").select("*").execute()
-            async_response = await supabase.table("foo").select("*").async_execute()
-
-    Troubleshooting:
+    **Troubleshooting:**
         While in user mode, if no rows are returned and everything else is
         correct, check the Row Level Security (RLS) policies on the table.
 
@@ -73,33 +90,29 @@ class Suplex():
         Reserved words are listed here:
             https://www.postgresql.org/docs/current/sql-keywords-appendix.html
     """
-    api_url: str
-    api_key: str
-    access_token: str 
-    refresh_token: str
-    headers: dict
-
-    _table: str = ""
-    _filters: str = ""
-    _select: str = ""
-    _order: str = ""
-    _method: str = ""
-    _data: dict = {}
-
     def __init__(
             self,
             api_url: str,
             api_key: str,
-            refresh_token: str = "",
-            service_role: str = "",
+            jwt_secret: str,
+            service_role: str | None = None,            
         ):
+        super().__init__()
         self.api_url = api_url
         self.api_key = api_key
-        self.refresh_token = refresh_token
-        self.headers = {
-            "apikey": api_key,
-            "Authorization": f"Bearer {service_role}",
-        }
+        self.service_role = service_role
+        self.auth = Auth(
+            api_url,
+            api_key,
+            jwt_secret,
+        )
+        self.headers = {}
+        self._table: str | None = None
+        self._filters: str | None = None
+        self._select: str | None = None
+        self._order: str | None = None
+        self._method: str | None = None
+        self._data: dict[str, Any] | list | None = None
 
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
@@ -217,13 +230,13 @@ class Suplex():
         self._method = "get"
         return self
     
-    def insert(self, data: dict | list) -> Self:
+    def insert(self, data: dict[str, Any] | list) -> Self:
         """
         Add new item to table as {'column': 'value', 'other_column': 'other_value'}
         or new items as [{'column': 'value'}, {'other_column': 'other_value'}]
         https://supabase.com/docs/reference/python/insert
         """
-        self._data = json.dumps(data)
+        self._data = data
         self._method = "post"
         return self
     
@@ -233,7 +246,7 @@ class Suplex():
         if it doesn't exist, otherwise update item. One column must be a primary key.
         https://supabase.com/docs/reference/python/upsert
         """
-        self._data = json.dumps(data)
+        self._data = data
         self._method = "post"
         self.headers["Prefer"] = f"return={return_},resolution=merge-duplicates"
         return self
@@ -246,7 +259,7 @@ class Suplex():
         """
         self.headers["Prefer"] = "return=representation"
         self._method = "patch"
-        self._data = json.dumps(data)
+        self._data = data
         return self
     
     def delete(self) -> Self:
@@ -271,6 +284,7 @@ class Suplex():
         https://supabase.com/docs/reference/python/limit
         """
         pass
+        return self
 
     def range(self, start: int, end: int) -> Self:
         """
@@ -278,6 +292,7 @@ class Suplex():
         https://supabase.com/docs/reference/python/range
         """
         pass
+        return self
 
     def single(self) -> Self:
         """
@@ -286,6 +301,7 @@ class Suplex():
         https://supabase.com/docs/reference/python/single
         """
         pass
+        return self
 
     def maybe_single(self) -> Self:
         """
@@ -294,6 +310,7 @@ class Suplex():
         https://supabase.com/docs/reference/python/maybesingle
         """
         pass
+        return self
 
     def csv(self) -> Self:
         """
@@ -301,6 +318,7 @@ class Suplex():
         https://supabase.com/docs/reference/python/csv
         """
         pass
+        return self
 
     def explain(self) -> Self:
         """
@@ -308,6 +326,8 @@ class Suplex():
         of a query using the explain() method.
         https://supabase.com/docs/reference/python/explain
         """
+        pass
+        return self
 
     def execute(self, **kwargs) -> httpx.Response:
         """
@@ -315,6 +335,7 @@ class Suplex():
         Requests use httpx.Client(). See list of available parameters to pass with
         request at https://www.python-httpx.org/api/#client
         """
+        # Set base URL and parameters
         base_url = f"{self.api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
@@ -325,26 +346,35 @@ class Suplex():
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
 
+        # Set headers
+        headers = {
+            **self.headers,
+            "apiKey": self.api_key,
+            "Authorization": f"Bearer {self.service_role if self.service_role else self.auth.access_token}",
+        }
+
         if self._method == "get":
             if not self._table:
                 raise ValueError("No table name was provided for request.")
             if not self._select:
                 raise ValueError("Must select columns to return or '*' to return all.")
-            response = httpx.get(url, headers=self.headers, **kwargs)
+            response = httpx.get(url, headers=headers, **kwargs)
         elif self._method == "post":
             if not self._data:
                 raise ValueError("Missing data for request.")
-            response = httpx.post(url, headers=self.headers, data=self._data, **kwargs)
+            response = httpx.post(url, headers=headers, json=self._data, **kwargs)
         elif self._method == "put":
             if not self._data:
                 raise ValueError("Missing data for request.")
-            response = httpx.put(url, headers=self.headers, data=self._data, **kwargs)
+            response = httpx.put(url, headers=headers, json=self._data, **kwargs)
         elif self._method == "patch":
             if not self._data:
                 raise ValueError("Missing data for request.")
-            response = httpx.patch(url, headers=self.headers, data=self._data, **kwargs)
+            response = httpx.patch(url, headers=headers, json=self._data, **kwargs)
         elif self._method == "delete":
-            response = httpx.delete(url, headers=self.headers, **kwargs)
+            response = httpx.delete(url, headers=headers, **kwargs)
+        else:
+            raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
         
         # Raise any HTTP errors
         response.raise_for_status()
@@ -361,12 +391,13 @@ class Suplex():
         # Return the response
         return response
     
-    async def async_execute(self, **kwargs) -> Coroutine:
+    async def async_execute(self, **kwargs) -> httpx.Response:
         """
         Execute async request to Supabase. Use execute() for sync requests.
         Requests use httpx.AsyncClient(). See list of available parameters to pass with
-        request at https://www.python-httpx.org/api/#asyncclient
+        request at https://www.python-httpx.org/api/#asyncclient.
         """
+        # Set base URL and parameters
         base_url = f"{self.api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
@@ -377,27 +408,36 @@ class Suplex():
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
 
+        # Set headers
+        headers = {
+            **self.headers,
+            "apiKey": self.api_key,
+            "Authorization": f"Bearer {self.service_role if self.service_role else self.auth.access_token}",
+        }
+
         async with httpx.AsyncClient() as client:
             if self._method == "get":
                 if not self._table:
                     raise ValueError("No table name was provided for request.")
                 if not self._select:
                     raise ValueError("Must select columns to return or '*' to return all.")
-                response = await client.get(url, headers=self.headers, **kwargs)
+                response = await client.get(url, headers=headers, **kwargs)
             elif self._method == "post":
                 if not self._data:
                     raise ValueError("Missing data for request.")
-                response = await client.post(url, headers=self.headers, data=self._data, **kwargs)
+                response = await client.post(url, headers=headers, json=self._data, **kwargs)
             elif self._method == "put":
                 if not self._data:
                     raise ValueError("Missing data for request.")
-                response = await client.put(url, headers=self.headers, data=self._data **kwargs)
+                response = await client.put(url, headers=headers, json=self._data, **kwargs)
             elif self._method == "patch":
                 if not self._data:
                     raise ValueError("Missing data for request.")
-                response = await client.patch(url, headers=self.headers, data=self._data, **kwargs)
+                response = await client.patch(url, headers=headers, json=self._data, **kwargs)
             elif self._method == "delete":
-                response = await client.delete(url, headers=self.headers, **kwargs)
+                response = await client.delete(url, headers=headers, **kwargs)
+            else:
+                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
             
             # Raise any HTTP errors
             response.raise_for_status()
