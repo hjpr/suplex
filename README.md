@@ -24,9 +24,9 @@ The Supabase client normally can either act as admin using a service role, or a 
 supabase.auth.sign_in_with_email()
 ```
 
-This will store the access token which will restrict the logged in user based on the Row-Level Security Policies.
+This will store the access token which will restrict the logged in user based on the Row-Level Security Policies. User data is stored within the supabase client object.
 
-This also means that every user (and every State) will need it's own version of that instantiated class. When attempting to create that supabase class within a State module so that it can be used, you will throw this error.
+When attempting to create that supabase class within a State module so that it can be used, you will throw this error.
 
 ```
 TypeError: can't pickle _thread.RLock objects
