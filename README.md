@@ -1,6 +1,6 @@
 # Suplex
 
-Building a syntactically similar REST API query builder to the Supabase Python library.
+Supabase built in Reflex!
 
 The Supabase library written in Python can be used within a Reflex website, but only as an admin. The way the standard Python operates is by instantiating a client and using that client to make queries.
 
