@@ -18,7 +18,7 @@ response = supabase.table("foo").insert({"bar": "baz"}).execute()
 
 ## The issue...
 
-The Supabase client will require either the service role to act as an admin bearer token, or an access_token retrieved from logging in a user with the auth module.
+The Supabase client normally can either act as admin using a service role, or a user utilizing the auth module.
 
 ```python
 supabase.auth.sign_in_with_email()
