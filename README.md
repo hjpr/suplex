@@ -36,7 +36,8 @@ TypeError: can't pickle _thread.RLock objects
 
 Since we can't instantiate multiple classes of the supabase client, it would mean that all users would share one instance of said class. Not so great for authentication and user management.
 
-I've simply wrapped all REST queries using httpx, so that when instantiating the Suplex class, it can be serialized correctly and all users can have their own instance thus allowing a clean store of auth data and user data using basically the same syntax as the official Python library so that it can be used for reference (save for a few little params here and there).
+I've built most of the supabase requests possible in the official Python library in a way that jives with Reflex's frontend to backend communication.
+When the initial state is created, by instantiating a Suplex class within your rx.State, each user gets their own copy of the class when they visit the site. By calling the auth class within each Suplex class, a user can login and have their data stored within the Suplex class in one simple line of code.
 
 Basic examples...
 
