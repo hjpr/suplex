@@ -2,7 +2,7 @@
 
 Supabase built in Reflex!
 
-The Supabase library written in Python can be used within a Reflex website, but only as an admin. The way the standard Python operates is by instantiating a client and using that client to make queries.
+The official Supabase library written in Python can't be used within rx.State. Outside of Reflex you can use it like this...
 
 ```python
 from supabase import Client, create_client
