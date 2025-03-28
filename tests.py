@@ -36,6 +36,8 @@ def run_user_tests():
             ("Settings...", settings_test, 1),
             ("Login...", login_test, 2),
             ("Get User...", get_user_test, 1),
+            ("Get Session", get_session_test, 1),
+            ("Update Session", update_session_test, 1),
             ("Update User...", update_user_test, 2),
             ("Logout...", logout_test, 1),
         ]
@@ -107,11 +109,39 @@ def login_test(progress: Progress, task_id: TaskID) -> None:
 def get_user_test(progress: Progress, task_id: TaskID) -> None:
     # Get remote user object.
     user = supabase.auth.get_user()
-    assert user["email"] == env_email, f"Expected {env_email}, got {user['email']}"
+    if user:
+        assert user["email"] == env_email, f"Expected {env_email}, got {user['email']}"
+    else:
+        raise ValueError(f"Expected user object present, but got {user}")
 
-    # Get local JWT user object.
-    user = supabase.auth.get_user(supabase.auth.access_token)
-    assert user["email"] == env_email, f"Expected {env_email}, got {user['email']}"
+    progress.update(task_id, advance=1)
+
+def get_session_test(progress:Progress, task_id: TaskID) -> None:
+    # Get session data.
+    session = supabase.auth.get_session()
+    if session:
+        assert session["aud"] == "authenticated"
+    else:
+        raise ValueError(f"Expected to retrieve session details from JWT, instead got {session}")
+
+    progress.update(task_id, advance=1)
+
+def update_session_test(progress:Progress, task_id:TaskID) -> None:
+    # Get new session data.
+    old_access_token = supabase.auth.access_token
+    old_refresh_token = supabase.auth.refresh_token
+    
+    user = supabase.auth.refresh_session()
+    new_access_token = supabase.auth.access_token
+    new_refresh_token = supabase.auth.refresh_token
+
+    if user:
+        assert user['aud'] == "authenticated"
+        assert new_access_token and (old_access_token != new_access_token)
+        assert new_refresh_token and (old_refresh_token != new_refresh_token)
+
+    else:
+        raise ValueError(f"Expected to retrieve user object, instead retrieved {user}")
 
     progress.update(task_id, advance=1)
 
@@ -138,11 +168,13 @@ def update_user_test(progress: Progress, task_id: TaskID) -> None:
 def logout_test(progress: Progress, task_id: TaskID) -> None:
     # Check if local tokens are removed.
     supabase.auth.logout()
+
     assert not supabase.auth.access_token, "Expected empty string after logout, got {supabase.auth.access_token}"
     assert not supabase.auth.refresh_token, "Expected empty string after logout, got {supabase.auth.refresh_token}"
 
     # Ensure no user object is returned. Expecting a ValueError.
     user = supabase.auth.get_user()
+
     assert not user, "Expected None after logout, got {user}"
 
     progress.update(task_id, advance=1)

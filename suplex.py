@@ -346,16 +346,18 @@ class Suplex(rx.Base):
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
 
-        # Set headers
+        # Check and set headers
         headers = {
             **self.headers,
             "apiKey": self.api_key,
             "Authorization": f"Bearer {self.service_role if self.service_role else self.auth.access_token}",
         }
 
+        # Raise general exceptions
+        if not self._table:
+            raise ValueError("No table name was provided for request.")
+
         if self._method == "get":
-            if not self._table:
-                raise ValueError("No table name was provided for request.")
             if not self._select:
                 raise ValueError("Must select columns to return or '*' to return all.")
             response = httpx.get(url, headers=headers, **kwargs)
@@ -408,7 +410,11 @@ class Suplex(rx.Base):
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
 
-        # Set headers
+        # Raise general exceptions
+        if not self._table:
+            raise ValueError("No table name was provided for request.")
+        
+        # Check and set headers
         headers = {
             **self.headers,
             "apiKey": self.api_key,
