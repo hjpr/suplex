@@ -1,6 +1,5 @@
+Okay, here is a Markdown file explaining how to use the `Suplex` and `Suplex.auth` classes.
 
-
-```markdown
 # Using Suplex and Suplex.auth with Supabase
 
 `Suplex` provides a Pythonic interface to interact with your Supabase database's REST API, inspired by the official Supabase Python library but tailored for use, potentially within frameworks like Reflex. It simplifies performing CRUD (Create, Read, Update, Delete) operations and handling user authentication.
@@ -11,10 +10,10 @@ This guide will walk you through setting up `Suplex`, authenticating users using
 
 Before you start, you need a Supabase project. You'll need the following details from your project settings:
 
-1.  **API URL**: Found in *Project Settings* > *API* > *Project URL*.
-2.  **API Key (anon key)**: Found in *Project Settings* > *API* > *Project API Keys* (use the `anon` public key for client-side operations).
-3.  **JWT Secret**: Found in *Project Settings* > *API* > *JWT Settings* > *JWT Secret*. This is crucial for the `Auth` class to verify tokens locally if needed (though direct decoding isn't the primary use case shown in the provided `auth.py`'s `get_session` which relies on a secret, you still need it for the `Auth` class setup).
-4.  **Service Role Key (Optional)**: Found in *Project Settings* > *API* > *Project API Keys* (use the `service_role` key *only* for backend operations where you need to bypass Row Level Security (RLS) policies). **Never expose this key in frontend code.**
+1. **API URL**: Found in *Project Settings* > *API* > *Project URL*.
+2. **API Key (anon key)**: Found in *Project Settings* > *API* > *Project API Keys* (use the `anon` public key for client-side operations).
+3. **JWT Secret**: Found in *Project Settings* > *API* > *JWT Settings* > *JWT Secret*. This is crucial for the `Auth` class to verify tokens locally if needed (though direct decoding isn't the primary use case shown in the provided `auth.py`'s `get_session` which relies on a secret, you still need it for the `Auth` class setup).
+4. **Service Role Key (Optional)**: Found in *Project Settings* > *API* > *Project API Keys* (use the `service_role` key *only* for backend operations where you need to bypass Row Level Security (RLS) policies). **Never expose this key in frontend code.**
 
 ## Setup and Instantiation
 
@@ -49,13 +48,12 @@ supabase = Suplex(
 #     jwt_secret=SUPABASE_JWT_SECRET, # Still needed
 #     service_role=SUPABASE_SERVICE_ROLE # Provides admin privileges
 # )
-```
 
 **Key Points:**
 
-* The `Suplex` instance holds your connection details and the `Auth` instance under `supabase.auth`.
-* If you provide `service_role`, requests made *before* a user logs in will use this key, bypassing RLS.
-* Once a user logs in via `supabase.auth`, subsequent requests will automatically use the user's `access_token`, enforcing RLS policies, even if `service_role` was provided during instantiation.
+*   The `Suplex` instance holds your connection details and the `Auth` instance under `supabase.auth`.
+*   If you provide `service_role`, requests made *before* a user logs in will use this key, bypassing RLS.
+*   Once a user logs in via `supabase.auth`, subsequent requests will automatically use the user's `access_token`, enforcing RLS policies, even if `service_role` was provided during instantiation.
 
 ## Authentication (`supabase.auth`)
 
