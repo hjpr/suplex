@@ -1,11 +1,32 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "suplex"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Python library for interacting with Supabase REST API in Reflex applications"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Jeremy Medlin", email = "jeremy.f.medlin@gmail.com"}
+]
+keywords = ["supabase", "reflex", "authentication", "database"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "dotenv>=0.9.9",
     "pyjwt>=2.10.1",
     "reflex>=0.7.3",
+    "httpx>=0.24.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/hjpr/suplex"
+"Bug Tracker" = "https://github.com/hjpr/suplex/issues"

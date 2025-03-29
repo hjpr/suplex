@@ -1,9 +1,8 @@
 import httpx
 import reflex as rx
-import rich
 import time
 
-from auth import Auth
+from .auth import Auth
 from rich.console import Console
 from typing import Any, Literal, Self
 from urllib.parse import quote
