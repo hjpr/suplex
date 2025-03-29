@@ -1,4 +1,3 @@
-Okay, here is a Markdown file explaining how to use the `Suplex` and `Suplex.auth` classes.
 
 # Using Suplex and Suplex.auth with Supabase
 
