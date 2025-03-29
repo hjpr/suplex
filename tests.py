@@ -85,7 +85,7 @@ def run_user_tests():
 
 def settings_test(progress: Progress, task_id:TaskID) -> None:
     settings = supabase.auth.get_settings()
-    assert settings["external"]["email"] == True, "Expected email to be enabled"
+    assert settings["external"]["email"] is True, "Expected email to be enabled"
 
     progress.update(task_id, advance=1)
 
@@ -137,8 +137,10 @@ def update_session_test(progress:Progress, task_id:TaskID) -> None:
 
     if user:
         assert user['aud'] == "authenticated"
-        assert new_access_token and (old_access_token != new_access_token)
-        assert new_refresh_token and (old_refresh_token != new_refresh_token)
+        assert new_access_token
+        assert old_access_token != new_access_token
+        assert new_refresh_token
+        assert old_refresh_token != new_refresh_token
 
     else:
         raise ValueError(f"Expected to retrieve user object, instead retrieved {user}")
@@ -182,6 +184,9 @@ def logout_test(progress: Progress, task_id: TaskID) -> None:
 def run_database_tests():
     try:
         test_funcs = [
+            ("Testing as user...", database_as_user, 1),
+            ("RLS Policies...", test_rls_policies, 1),
+            ("Testing as admin...", database_as_admin, 1),
             ("Building test table...", build_test_table, 10),  # 10 steps
             ("Insert...", test_insert, 2),
             ("Delete...", test_delete, 1),
@@ -221,6 +226,23 @@ def run_database_tests():
     else:
         progress.console.print("\n[bold green] 🎂 This was a triumph. I'm making a note here: HUGE SUCCESS. 🎂 [/bold green]")
 
+def database_as_user(progress:Progress, task_id:TaskID) -> None:
+    # Provided service role, but by logging in, will override service role.
+    supabase.auth.sign_in_with_password(email=env_email, password=env_password)
+
+    progress.update(task_id, advance=1)
+
+def test_rls_policies(progress:Progress, task_id:TaskID) -> None:
+    response = supabase.table('test').select('*').execute()
+    assert not response.json(), f"shouldn't have retrieved any rows, but returned {response.json()}"
+
+    progress.update(task_id, advance=1)
+
+def database_as_admin(progress:Progress, task_id:TaskID) -> None:
+    # Provided service role, so with logout, service role will now be used.
+    supabase.auth.logout()
+
+    progress.update(task_id, advance=1)
 
 def build_test_table(progress:Progress, task_id:TaskID) -> None:
     id = [id for id in range(1, 11)]

@@ -1,7 +1,6 @@
 import httpx
 import jwt
 import reflex as rx
-import rich
 
 from typing import Any, Literal, Mapping, Optional
 
@@ -33,7 +32,6 @@ class Auth(rx.Base):
         self._jwt_secret = jwt_secret
         self.headers: Mapping[str, str] = {"apikey": self.api_key}
         self.access_token = rx.Cookie(
-            access_token,
             name="access_token",
             path="/",
             secure=True,
@@ -41,7 +39,6 @@ class Auth(rx.Base):
             domain=None,
         )
         self.refresh_token = rx.Cookie(
-            refresh_token,
             name="access_token",
             path="/",
             secure=True,
@@ -55,7 +52,7 @@ class Auth(rx.Base):
         phone: Optional[str] = None,
         password: str = "",
         options: Optional[dict[str, Any]] = None,
-    ) -> httpx.Response:
+    ) -> None:
         """
         Sign up a user with email or phone, and password.
         - **email**: *str* - The email address of the user.
@@ -90,10 +87,7 @@ class Auth(rx.Base):
                 data["channel"] = options.pop("channel")
 
         response = httpx.post(url, headers=self.headers, json=data)
-
         response.raise_for_status()
-
-        return response
 
     def sign_in_with_password(
         self,
@@ -109,6 +103,8 @@ class Auth(rx.Base):
         - **password**: *str* - The password for the user.
         - **options**: *dict* - (Optional) Extra options for the signup process.
             - **captcha_token**: *str* - A token from a captcha provider.
+
+        Returns user object of user successfully logged in.
         """
         data = {}
         url = f"{self.api_url}/auth/v1/token?grant_type=password"
@@ -131,6 +127,7 @@ class Auth(rx.Base):
 
         self.access_token = response.json()["access_token"]
         self.refresh_token = response.json()["refresh_token"]
+        return response.json()
 
     def sign_in_with_oauth(
         self,
@@ -277,13 +274,12 @@ class Auth(rx.Base):
         params = {"grant_type": "refresh_token"}
         json = {"refresh_token": self.refresh_token}
         url = f"{self.api_url}/auth/v1/token?grant_type=refresh_token"
-        response = httpx.post(url, headers=self.headers, params=params, json=json)
 
+        response = httpx.post(url, headers=self.headers, params=params, json=json)
         response.raise_for_status()
 
         self.access_token = response.json()["access_token"]
         self.refresh_token = response.json()["refresh_token"]
-
         return response.json()["user"]
 
     def get_settings(self) -> dict[str, Any]:
@@ -292,8 +288,8 @@ class Auth(rx.Base):
         """
         response = httpx.get(f"{self.api_url}/auth/v1/settings", headers=self.headers)
         response.raise_for_status()
-        settings = response.json()
 
+        settings = response.json()
         return dict(settings)
 
     def logout(self) -> None:
@@ -309,6 +305,5 @@ class Auth(rx.Base):
         response = httpx.post(url, headers=headers)
         response.raise_for_status()
 
-        self.access_token = None
-        self.refresh_token = None
-        self._user_data = None
+        self.access_token = ""
+        self.refresh_token = ""

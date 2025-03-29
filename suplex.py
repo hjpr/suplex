@@ -1,6 +1,7 @@
 import httpx
-import json
 import reflex as rx
+import rich
+import time
 
 from auth import Auth
 from rich.console import Console
@@ -21,8 +22,7 @@ class Suplex(rx.Base):
             Project Settings > Data API > JWT Settings (jwt_secret)
 
     Instatiating this class without specifying api_url, or api_key, will use the
-    environment variables api_url and api_key. For security purposes, you must manually
-    pass a service role.
+    environment variables api_url and api_key.
 
     **Example:**
     ```python
@@ -33,7 +33,7 @@ class Suplex(rx.Base):
             api_url="your-api-url",
             api_key="your-api-key",
             jwt_secret="your-jwt-secret",
-            service_role="your-service-role"
+            service_role="your-service-role" # Only pass if using client as admin.
         )
 
         # If service role is provided, this request bypasses RLS policies.
@@ -346,17 +346,26 @@ class Suplex(rx.Base):
             params.append(self._order)
         url = f"{base_url}?{'&'.join(params)}"
 
-        # Check and set headers
+        # Check for token expiration and refresh if within 5 seconds of expiration.
+        if self.auth.access_token:
+            claims = self.auth.get_session()
+            if claims and (claims["exp"] - time.time() <= 5):
+                self.auth.refresh_session()
+
+        # Set headers
         headers = {
             **self.headers,
             "apiKey": self.api_key,
-            "Authorization": f"Bearer {self.service_role if self.service_role else self.auth.access_token}",
+            "Authorization": f"Bearer {self.auth.access_token if self.auth.access_token else self.service_role}"
         }
 
         # Raise general exceptions
         if not self._table:
             raise ValueError("No table name was provided for request.")
+        if not self.auth.access_token and not self.service_role:
+            raise ValueError("No user access_token or service_role available to use as bearer.")
 
+        # Finally make the built request.
         if self._method == "get":
             if not self._select:
                 raise ValueError("Must select columns to return or '*' to return all.")
@@ -413,12 +422,20 @@ class Suplex(rx.Base):
         # Raise general exceptions
         if not self._table:
             raise ValueError("No table name was provided for request.")
+        if not self.auth.access_token and not self.service_role:
+            raise ValueError("No user access_token or service_role available to use as bearer.")
         
+        # Check for token expiration and refresh if within 5 seconds of expiration.
+        if self.auth.access_token:
+            claims = self.auth.get_session()
+            if claims and (claims["exp"] - time.time() <= 5):
+                self.auth.refresh_session()
+
         # Check and set headers
         headers = {
             **self.headers,
             "apiKey": self.api_key,
-            "Authorization": f"Bearer {self.service_role if self.service_role else self.auth.access_token}",
+            "Authorization": f"Bearer {self.auth.access_token if self.auth.access_token else self.service_role}",
         }
 
         async with httpx.AsyncClient() as client:
