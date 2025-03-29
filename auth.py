@@ -39,7 +39,7 @@ class Auth(rx.Base):
             domain=None,
         )
         self.refresh_token = rx.Cookie(
-            name="access_token",
+            name="refresh_token",
             path="/",
             secure=True,
             same_site="lax",
