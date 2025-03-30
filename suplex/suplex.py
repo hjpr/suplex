@@ -2,12 +2,9 @@ import httpx
 import reflex as rx
 import time
 
-from .auth import Auth
-from rich.console import Console
+from ..auth.auth import Auth
 from typing import Any, Literal, Self
 from urllib.parse import quote
-
-console = Console()
         
 class Suplex(rx.Base):
     """

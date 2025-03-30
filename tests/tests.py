@@ -9,7 +9,7 @@ import rich
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TaskID
-from suplex import Suplex
+from suplex.suplex import Suplex
 
 console = Console()
 
