@@ -974,10 +974,11 @@ wheels = [
 
 [[package]]
 name = "suplex"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.1.1"
+source = { editable = "." }
 dependencies = [
     { name = "dotenv" },
+    { name = "httpx" },
     { name = "pyjwt" },
     { name = "reflex" },
 ]
@@ -985,8 +986,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "httpx", specifier = ">=0.24.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "reflex", specifier = ">=0.7.3" },
+    { name = "reflex", specifier = ">=0.7.2" },
 ]
 
 [[package]]
