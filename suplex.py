@@ -3,11 +3,12 @@ import jwt
 import os
 import reflex as rx
 import rich
+import time
 
 from dotenv import load_dotenv
 from loguru import logger
 from reflex.event import Event
-from typing import Any, Callable, Dict, List, Literal, Optional, Self
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Self
 from urllib.parse import quote
 
 load_dotenv()
@@ -31,14 +32,11 @@ class Query(rx.Base):
         - ValueError: If required parameters are missing or invalid.
         - httpx.HTTPStatusError: If the API request fails.
     """
-    def __init__(self, bearer_token: str):
-        super().__init__()
-        self.bearer_token = bearer_token
 
     # Auth attributes
-    bearer_token: str
-    api_url: str = api_url
-    api_key: str = api_key
+    bearer_token: str | None = None
+    _api_url: str = api_url
+    _api_key: str = api_key
     _headers: dict[str, str] = {}
 
     # Query building attributes
@@ -264,7 +262,7 @@ class Query(rx.Base):
         pass
         return self
 
-    def execute(self, **kwargs) -> httpx.Response:
+    def execute(self, **kwargs) -> List[Dict[str, Any]]:
         """
         Execute sync request to Supabase. Use async_execute() for async requests.
         Requests use httpx.Client(). See list of available parameters to pass with
@@ -272,14 +270,14 @@ class Query(rx.Base):
         """
         # Raise exceptions
         if not self.bearer_token:
-            raise ValueError("Request requires a bearer token.")
+            raise ValueError("Request requires a bearer token. User needs to be signed in first, or service_role provided for admin use.")
         if not self._table:
             raise ValueError("No table name was provided for request.")
         if not self._method:
             raise ValueError("No method was provided for request.")
 
         # Set base URL and parameters
-        base_url = f"{self.api_url}/rest/v1/{self._table}"
+        base_url = f"{self._api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
             params.append(self._filters)
@@ -292,7 +290,7 @@ class Query(rx.Base):
         # Set headers
         headers = {
             **self._headers,
-            "apikey": self.api_key,
+            "apikey": self._api_key,
             "Authorization": f"Bearer {self.bearer_token}",
         }
 
@@ -331,9 +329,9 @@ class Query(rx.Base):
         response.raise_for_status()
 
         # Return the response
-        return response
+        return response.json()
 
-    async def async_execute(self, **kwargs) -> httpx.Response:
+    async def async_execute(self, **kwargs) -> List[Dict[str, Any]]:
         """
         Execute async request to Supabase. Use execute() for sync requests.
         Requests use httpx.AsyncClient(). See list of available parameters to pass with
@@ -348,7 +346,7 @@ class Query(rx.Base):
             raise ValueError("No method was provided for request.")
 
         # Set base URL and parameters
-        base_url = f"{self.api_url}/rest/v1/{self._table}"
+        base_url = f"{self._api_url}/rest/v1/{self._table}"
         params = []
         if self._filters:
             params.append(self._filters)
@@ -361,7 +359,7 @@ class Query(rx.Base):
         # Set headers
         headers = {
             **self._headers,
-            "apikey": self.api_key,
+            "apikey": self._api_key,
             "Authorization": f"Bearer {self.bearer_token}",
         }
 
@@ -402,7 +400,7 @@ class Query(rx.Base):
             response.raise_for_status()
 
             # Return the response
-            return response
+            return response.json()
 
 
 class Suplex(rx.State):
@@ -413,38 +411,34 @@ class Suplex(rx.State):
         - access_token - Cookie for storing the JWT access token.
         - refresh_token - Cookie for storing the refresh token.
 
+    Vars:
+        - claims: Decoded JWT claims from the access token.
+        - user_id: ID of the authenticated user.
+        - user_email: Email of the authenticated user.
+        - user_phone: Phone number of the authenticated user.
+        - user_audience: Audience of the authenticated user.
+        - user_role: Role of the authenticated user.
+        - claims_issuer: Issuer of the JWT claims.
+        - claims_expire_at: Expiration time of the JWT claims.
+        - claims_issued_at: Issued time of the JWT claims.
+        - claims_session_id: Session ID from the JWT claims.
+        - user_metadata: User metadata from the JWT claims.
+        - app_metadata: App metadata from the JWT claims.
+        - user_aal: Authentication assurance level (1 or 2).
+        - user_is_authenticated: Boolean indicating if the user is authenticated.
+        - user_is_anonymous: Boolean indicating if the user is anonymous.
+        - user_token_expired: Boolean indicating if the token is expired.
+
     Auth Functions:
         - sign_up: Register a new user with email or phone and password.
         - sign_in_with_password: Authenticate a user with email/phone and password.
         - sign_in_with_oauth: Authenticate a user with third-party OAuth providers.
         - get_user: Retrieve the current authenticated user's data.
         - update_user: Update the current user's profile information.
-        - get_session: Get the current session data from the JWT access token.
         - refresh_session: Refresh the authentication session using the refresh token.
         - get_settings: Retrieve authentication settings for the Supabase project.
         - logout: Log out the current user and invalidate the session.
 
-    Building Queries:
-        - table: Specify the table to query.
-        - select: Specify columns to return from the query.
-        - insert: Add new items to the table.
-        - upsert: Add or update items in the table.
-        - update: Update existing rows in the table.
-        - delete: Delete matching rows from the table.
-
-    Adding Filters:
-        - eq: Match rows where column is equal to value.
-        - neq: Match rows where column is not equal to value.
-        - gt: Match rows where column is greater than value.
-        - lt: Match rows where column is less than value.
-        - gte: Match rows where column is greater than or equal to value.
-        - lte: Match rows where column is less than or equal to value.
-        - like: Match rows where column matches pattern case-sensitively.
-        - ilike: Match rows where column matches pattern case-insensitively.
-        - is_: Match rows where column is null or bool.
-        - in_: Match rows where column is in the list of values.
-        - contains: Match rows where jsonb, array, or range columns contain every element in values.
-        - contained_by: Match rows where jsonb, array, or range columns are contained by values.
     """
     # Cookies
     access_token: rx.Cookie | str = rx.Cookie(
@@ -468,6 +462,11 @@ class Suplex(rx.State):
     _jwt_secret = jwt_secret
     _service_role = service_role
 
+    # Query class
+    query: Query = Query(
+        bearer_token=access_token,
+    )
+
     # Loading
     is_loading = False
 
@@ -486,9 +485,98 @@ class Suplex(rx.State):
                 return None
             
     @rx.var
-    def is_authenticated(self) -> bool:
+    def user_id(self) -> str | None:
+        if self.claims:
+            return self.claims["sub"]
+        return None
+    
+    @rx.var
+    def user_email(self) -> str | None:
+        if self.claims:
+            return self.claims["email"]
+        return None
+    
+    @rx.var
+    def user_phone(self) -> str | None:
+        if self.claims:
+            return self.claims["phone"]
+        return None
+    
+    @rx.var
+    def user_audience(self) -> str | None:
+        if self.claims:
+            return self.claims["aud"]
+        return None
+    
+    @rx.var
+    def user_role(self) -> str | None:
+        if self.claims:
+            return self.claims["role"]
+        return None
+    
+    @rx.var
+    def claims_issuer(self) -> str | None:
+        if self.claims:
+            return self.claims["iss"]
+        return None
+    
+    @rx.var
+    def claims_expire_at(self) -> int | None:
+        """Unix timestamp of when the token expires."""
+        if self.claims:
+            return self.claims["exp"]
+        return None
+    
+    @rx.var
+    def claims_issued_at(self) -> int | None:
+        """Unix timestamp of when the token was issued."""
+        if self.claims:
+            return self.claims["iat"]
+        return None
+    
+    @rx.var
+    def claims_session_id(self) -> str | None:
+        """Unique identifier for the session."""
+        if self.claims:
+            return self.claims["session_id"]
+        return None
+    
+    @rx.var
+    def user_metadata(self) -> Dict[str, Any] | None:
+        if self.claims:
+            return self.claims["user_metadata"]
+        return None
+    
+    @rx.var
+    def app_metadata(self) -> Dict[str, Any] | None:
+        if self.claims:
+            return self.claims["app_metadata"]
+        return None
+    
+    @rx.var
+    def user_aal(self) -> Literal["aal1", "aal2"] | None:
+        """aal1 is 1-factor auth, aal2 is 2-factor auth."""
+        if self.claims:
+            return self.claims["aal"]
+        return None
+            
+    @rx.var
+    def user_is_authenticated(self) -> bool:
         if self.claims:
             return True if self.claims["aud"] == "authenticated" else False
+        return False
+    
+    @rx.var
+    def user_is_anonymous(self) -> bool:
+        if self.claims:
+            return self.claims["is_anonymous"]
+        return False
+    
+    @rx.var
+    def user_token_expired(self) -> bool:
+        """Give 10 seconds of leeway for token expiration for a slow request."""
+        if self.claims:
+            return True if self.claims_expire_at + 10 < time.time() else False
         return False
         
     def sign_up(
@@ -520,6 +608,9 @@ class Suplex(rx.State):
         """
         data = {}
         url = f"{self._api_url}/auth/v1/signup"
+        headers = {
+            "apikey": self._api_key,
+        }
         if not email and not phone:
             raise ValueError("Either email or phone must be provided.")
         if not password:
@@ -540,7 +631,7 @@ class Suplex(rx.State):
             if "channel" in options:
                 data["channel"] = options.pop("channel")
 
-        response = httpx.post(url, headers=self._headers, json=data)
+        response = httpx.post(url, headers=headers, json=data)
         response.raise_for_status()
         
         return response.json()
@@ -589,6 +680,7 @@ class Suplex(rx.State):
 
         response_data = response.json()
         self.access_token = response_data["access_token"]
+        self.query.bearer_token = response_data["access_token"]
         self.refresh_token = response_data["refresh_token"]
         return response_data
 
@@ -678,26 +770,15 @@ class Suplex(rx.State):
             This method will clear auth tokens if an error occurs.
             Use get_session() to retrieve the JWT token claims instead of the full user profile.
         """
-        try:
-            session = self.get_session()
-            if not session:
-                return None
-                
-            response = httpx.get(
-                f"{self._api_url}/auth/v1/user",
-                headers={
-                    **self._headers,
-                    "Authorization": f"Bearer {self.access_token}",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
-            
-        except Exception:
-            # Clear tokens on any error
-            self.access_token = ""
-            self.refresh_token = ""
-            return None
+        response = httpx.get(
+            f"{self._api_url}/auth/v1/user",
+            headers={
+                "apikey": self._api_key,
+                "Authorization": f"Bearer {self.access_token}",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     def update_user(
         self,
@@ -724,10 +805,6 @@ class Suplex(rx.State):
         Raises:
             ValueError: If no access token exists (user not authenticated)
             httpx.HTTPStatusError: If the API request fails
-            
-        Note:
-            At least one parameter must be provided to update the user.
-            Changes to email may require verification depending on Supabase settings.
         """
         if not self.access_token:
             raise ValueError("Expected access token to update user information.")
@@ -735,7 +812,7 @@ class Suplex(rx.State):
         data = {}
         url = f"{self._api_url}/auth/v1/user"
         headers = {
-            **self._headers,
+            "apikey": self._api_key,
             "Authorization": f"Bearer {self.access_token}",
         }
 
@@ -756,69 +833,7 @@ class Suplex(rx.State):
 
         return response.json()
 
-    def get_session(self) -> Optional[Dict[str, Any]]:
-        """
-        Get the current session data from the JWT access token.
-        
-        This method decodes the JWT access token to extract the session claims.
-        If the token is expired, it will automatically attempt to refresh the session.
-        
-        Args:
-            None
-            
-        Returns:
-            Dictionary containing the JWT claims (session data) if valid, or None if:
-            - No access token exists
-            - Token is invalid or malformed
-            - Token is expired and refresh attempt fails
-            
-        Note:
-            This method is used internally to verify authentication status
-            before making authenticated API calls.
-        """
-        try:
-            return self._get_claims()
-        except jwt.ExpiredSignatureError:
-            # If token is expired, try to refresh
-            user = self.refresh_session()
-            if user and self.access_token:
-                try:
-                    return self._get_claims()
-                except Exception:
-                    return None
-            return None
-        except Exception:
-            # Handle any other JWT errors (invalid token, etc.)
-            return None
-        
-    def _get_claims(self) -> Dict[str, Any]:
-        """
-        Decode and verify the JWT access token.
-        
-        Args:
-            None
-            
-        Returns:
-            Dictionary containing the decoded JWT claims
-            
-        Raises:
-            jwt.PyJWTError: If token decoding fails for any reason
-            
-        Note:
-            This is an internal method used by get_session().
-        """
-        if not self.access_token:
-            raise ValueError("No access token available to decode")
-            
-        decoded_jwt = jwt.decode(
-            self.access_token,
-            self._jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-        return decoded_jwt
-
-    def refresh_session(self) -> Optional[Dict[str, Any]]:
+    def refresh_session(self) -> Dict[str, Any] | None:
         """
         Refresh the authentication session using the refresh token.
         
@@ -826,49 +841,32 @@ class Suplex(rx.State):
         when the current one expires. It automatically updates the token storage
         if successful.
         
-        Args:
-            None
-            
         Returns:
-            Dictionary containing the user data if refresh was successful, or None if:
-            - No refresh token exists
-            - Refresh token is expired or invalid
-            - API request fails for any reason
-            
-        Note:
-            This method is called automatically by get_session() when the
-            access token has expired. It will clear both tokens on failure.
-        """
-        if not self.refresh_token:
-            return None
-            
-        url = f"{self._api_url}/auth/v1/token?grant_type=refresh_token"
-        
-        try:
-            response = httpx.post(
-                url, 
-                headers=self._headers, 
-                json={"refresh_token": self.refresh_token}
-            )
-            response.raise_for_status()
+            - Dictionary containing the user data if refresh successful.
+            - None if:
+                - No refresh token exists
+                - Refresh token is expired or invalid
+                - API request fails for any reason
 
-            data = response.json()
-            if data and all(key in data for key in ["user", "access_token", "refresh_token"]):
-                # Update tokens
-                self.access_token = data["access_token"]
-                self.refresh_token = data["refresh_token"]
-                return data["user"]
-            else:
-                # Clear tokens if response is incomplete
-                self.access_token = ""
-                self.refresh_token = ""
-                return None
-                
-        except Exception:
-            # Clear tokens on any error
-            self.access_token = ""
-            self.refresh_token = ""
-            return None
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+            KeyError: If the expected keys are not present in the response
+        """
+        url = f"{self._api_url}/auth/v1/token?grant_type=refresh_token"
+        headers = {
+            "apikey": self._api_key,
+            "Authorization": f"Bearer {self.access_token}",
+        }
+        response = httpx.post(
+            url, 
+            headers=headers, 
+            json={"refresh_token": self.refresh_token}
+        )
+        response.raise_for_status()
+
+        self.access_token = response.json()["access_token"]
+        self.refresh_token = response.json()["refresh_token"]
+        return response.json()["user"]
 
     def get_settings(self) -> Dict[str, Any]:
         """
@@ -876,76 +874,48 @@ class Suplex(rx.State):
         
         This method fetches the authentication configuration settings from
         the Supabase API, including enabled providers and security settings.
-        
-        Args:
-            None
             
         Returns:
             Dictionary containing the authentication settings
             
         Raises:
             httpx.HTTPStatusError: If the API request fails
-            
-        Note:
-            This method does not require authentication - it uses the API key only.
         """
-        response = httpx.get(
-            f"{self._api_url}/auth/v1/settings", 
-            headers=self._headers
-        )
+        url = f"{self._api_url}/auth/v1/settings"
+        headers = {
+            "apikey": self._api_key,
+        }
+        response = httpx.get(url, headers=headers)
         response.raise_for_status()
         return response.json()
 
     def logout(self) -> None:
         """
-        Log out the current user and invalidate the session.
-        
-        This method revokes the refresh token on the server and
-        clears both tokens from local storage. After calling this method,
-        the user will need to authenticate again to access protected resources.
-        
-        Args:
-            None
-            
-        Returns:
-            None
+        Log out the current user and invalidate the refresh token on Supabase.
+        Clears cookies and the bearer token from the query object.
             
         Raises:
-            httpx.HTTPStatusError: If the API request fails
-            
-        Note:
-            This method clears tokens even if the API request fails,
-            ensuring the user is always logged out locally.
+            httpx.HTTPStatusError: If the API request fails.
         """
         # Only attempt server-side logout if we have an access token
         if self.access_token:
             url = f"{self._api_url}/auth/v1/logout"
             headers = {
-                **self._headers,
+                "apikey": self._api_key,
                 "Authorization": f"Bearer {self.access_token}",
             }
+            response = httpx.post(url, headers=headers)
 
-            try:
-                response = httpx.post(url, headers=headers)
-                response.raise_for_status()
-            except Exception:
-                # Continue with local logout even if server request fails
-                pass
+            # Clear tokens
+            self.access_token = ""
+            self.refresh_token = ""
+            self.query.bearer_token = ""
 
-        # Always clear tokens
-        self.access_token = ""
-        self.refresh_token = ""
+            # Up to dev how to handle if server exception occurs, but locally user will be logged out.
+            response.raise_for_status()
 
-    def loading(self):
-        def decorator(fn):
-            def wrapper(*args, **kwargs):
-                result = fn(*args, **kwargs)
-                events = result if isinstance(result, list) else [result]
-                return (
-                    [Suplex.setvar("is_loading", True)] +
-                    events +
-                    [Suplex.setvar("is_loading", False)]
-                )
-            return wrapper
-        return decorator
-    
+        else:
+            # Clear tokens if no access token exists
+            self.access_token = ""
+            self.refresh_token = ""
+            self.query.bearer_token = ""
