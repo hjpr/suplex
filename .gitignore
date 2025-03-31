@@ -5,5 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+
 .venv
 .env
+.vscode

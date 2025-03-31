@@ -889,7 +889,7 @@ class Suplex(rx.State):
         response.raise_for_status()
         return response.json()
 
-    def logout(self) -> None:
+    def log_out(self) -> None:
         """
         Log out the current user and invalidate the refresh token on Supabase.
         Clears cookies and the bearer token from the query object.
