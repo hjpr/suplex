@@ -50,8 +50,6 @@ class OtherState(BaseState):
 
 Suplex comes with built-in vars and functions to manage users, user objects, JWT claims and more. Because front-end handling is different from project to project, you'll need to create functions for how you'd like to update your UI, redirect on success/failure, and handle exceptions.
 
-
-
 After logging user in, the access and refresh tokens are stored within your BaseState as
 
 ```python
@@ -61,6 +59,28 @@ self.refresh_token
 ```
 
 You won't need to do anything with those tokens directly, as there are a ton of helper vars and functions to extract relevant details, get user objects, and refresh sessions.
+
+
+
+### Auth Functions
+
+- sign_up()
+
+- sign_in_with_password()
+
+- sign_in_with_oauth()
+
+- get_user()
+
+- update_user()
+
+- refresh_session()
+
+- get_settings()
+
+- log_out()
+
+Check docstrings for params, returns and exceptions.
 
 ```python
 from suplex import Suplex
@@ -97,25 +117,76 @@ class BaseState(Suplex):
             yield rx.toast.error("Something went wrong during logout.")
 ```
 
-### Auth Functions
+### Auth Vars
 
-- sign_up()
+There is a full set of vars that pull values from the signed JWT that gets provided from Supabase in the form of an access_token. These vars pull those claims. If you don't want to use local information and instead only want to rely on a user object pulled directly from Supabase then you will want to use the get_user() function and parse the user object directly.
 
-- sign_in_with_password()
 
-- sign_in_with_oauth()
 
-- get_user()
+- user_id
 
-- update_user()
+- user_email
 
-- refresh_session()
+- user_phone
 
-- get_settings()
+- user_audience
 
-- log_out()
+- user_role
 
-Check docstrings for params, returns and exceptions.
+- claims_issuer
+
+- claims_expire_at
+
+- claims_issued_at
+
+- claims_session_id
+
+- user_metadata
+
+- app_metadata
+
+- user_aal
+
+- user_is_authenticated
+
+- user_is_anonymous
+
+- user_token_expired
+
+```python
+# Frontend
+def auth_component() -> rx.Component:
+    # Show only if user is logged in.
+    return rx.cond(
+        BaseState.user_is_authenticated,
+        rx.shown_if_authenticated(),
+        rx.shown_if_not_authenticated()
+)
+
+def user_info_panel() -> rx.Component:
+    # Show currently logged in user info.
+    return rx.flex(
+        rx.text(BaseState.user_id),
+        rx.text(BaseState.user_email),
+        rx.text(BaseState.user_phone),
+        class_name="flex-col items-center w-full"
+)
+
+# Setup a page to use auth_flow. Redirects user who isn't logged in.
+@rx.page("/recipes", on_load=BaseState.auth_flow)
+def recipes() -> rx.Component:
+    return rx.flex(
+        rx.button("Get Recipes")
+        on_click=BaseState.get_recipes()
+)
+
+class BaseState(Suplex):
+
+    def auth_flow(self) -> rx.Event:
+        if not self.user_is_authenticated:
+            return rx.redirect("/login")
+        
+```
 
 ---
 
@@ -207,8 +278,4 @@ If there is a feature you'd like added that keeps the spirit of flexibility but 
 
 Documentation and structure of this project is **very early** so expect changes as I integrate this project and test all the features thoroughly.
 
-
-
 ## Thanks!
-
-
