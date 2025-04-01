@@ -1,22 +1,10 @@
 import httpx
 import jwt
-import os
 import reflex as rx
-import rich
 import time
 
-from dotenv import load_dotenv
-from loguru import logger
-from reflex.event import Event
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Self
+from typing import Any, Dict, List, Literal, Optional, Self
 from urllib.parse import quote
-
-load_dotenv()
-
-api_key = str(os.getenv("api_key"))
-api_url = str(os.getenv("api_url"))
-jwt_secret = str(os.getenv("jwt_secret"))
-service_role = str(os.getenv("service_role"))
 
 class Query(rx.Base):
     """
@@ -35,8 +23,8 @@ class Query(rx.Base):
 
     # Auth attributes
     bearer_token: str | None = None
-    _api_url: str = api_url
-    _api_key: str = api_key
+    _api_url: str | None = None
+    _api_key: str | None = None
     _headers: dict[str, str] = {}
 
     # Query building attributes
@@ -46,6 +34,17 @@ class Query(rx.Base):
     _order: str | None = None
     _method: str | None = None
     _data: dict[str, Any] | list | None = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        config = rx.config.get_config()
+        required_keys = {"api_url", "api_key"}
+        missing_keys = required_keys - config.suplex.keys() # type: ignore
+        if missing_keys:
+            raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
+
+        self._api_url = config.suplex["api_url"] # type: ignore
+        self._api_key = config.suplex["api_key"] # type: ignore
 
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
@@ -440,13 +439,13 @@ class Suplex(rx.State):
         - logout: Log out the current user and invalidate the session.
 
     """
-    # Cookies
     access_token: rx.Cookie | str = rx.Cookie(
         name="access_token",
         path="/",
         secure=True,
         same_site="lax",
         domain=None,
+        max_age=rx.config.get_config().suplex.get("cookie_max_age", None) # type: ignore
     )
     refresh_token: rx.Cookie | str = rx.Cookie(
         name="refresh_token",
@@ -454,21 +453,50 @@ class Suplex(rx.State):
         secure=True,
         same_site="lax",
         domain=None,
+        max_age=rx.config.get_config().suplex.get("cookie_max_age", None) # type: ignore
     )
-
+    
     # API and auth keys
-    _api_url = api_url
-    _api_key = api_key
-    _jwt_secret = jwt_secret
-    _service_role = service_role
+    _api_url: str | None = None
+    _api_key: str | None = None
+    _jwt_secret: str | None = None
+    _service_role: str | None = None
 
     # Query class
-    query: Query = Query(
-        bearer_token=access_token,
-    )
+    query: Query = Query()
 
     # Loading
     is_loading = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Load our config
+        config = rx.config.get_config()
+        required_keys = {"api_url", "api_key", "jwt_secret"}
+        missing_keys = required_keys - config.suplex.keys() # type: ignore
+        if missing_keys:
+            raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
+
+        self._api_url = config.suplex["api_url"] # type: ignore
+        self._api_key = config.suplex["api_key"] # type: ignore
+        self._jwt_secret = config.suplex["jwt_secret"] # type: ignore
+        self._service_role = config.suplex.get("service_role", None) # type: ignore
+
+        # Handle default cookie behavior as set by config
+        default_cookie_behavior = config.suplex.get("default_cookie_behavior", "session") # type: ignore
+        max_age: int | None = config.suplex.get("max_age", None) # type: ignore
+
+    @rx.var
+    def load_bearer_into_query(self) -> None:
+        """
+        A cheeky hack. Normally we can't access browser cookies when query is
+        instantiated, but using this var we can set the access_token when the
+        state has loaded prior to user interaction. Otherwise if a persistent
+        cookie was set, the user would have an access_token and be "logged in"
+        but not able to run queries as the bearer token would be empty.
+        """
+        self.query.bearer_token = self.access_token
 
     @rx.var
     def claims(self) -> Dict[str, Any] | None:
@@ -476,7 +504,7 @@ class Suplex(rx.State):
             try:
                 claims = jwt.decode(
                     self.access_token,
-                    self._jwt_secret,
+                    self._jwt_secret, # type: ignore
                     algorithms=["HS256"],
                     audience="authenticated",
                 )
@@ -679,9 +707,11 @@ class Suplex(rx.State):
         response.raise_for_status()
 
         response_data = response.json()
+
         self.access_token = response_data["access_token"]
         self.query.bearer_token = response_data["access_token"]
         self.refresh_token = response_data["refresh_token"]
+
         return response_data
 
     def sign_in_with_oauth(

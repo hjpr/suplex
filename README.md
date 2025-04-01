@@ -16,15 +16,39 @@ pip install suplex
 
 ## Environment Variables
 
-Where module is located, copy the .env.example to .env. Add in your url, keys, and jwt secret. You can also add service_role if you want to option to run client as admin (but be careful you understand how it works!). **If your suplex module is anywhere other than inside your .venv file, then ensure your .gitignore is updated to ignore .env files.**
+In your project top-level directory, where rxconfig.py is located create a .env file as follows...
 
 ```bash
-cd /path/to/suplex
-cp .env.example .env
-nano .env
+api_url="your-api-url"
+api_key="your-api-key"
+jwt_secret="your-jwt-secret"
+service_role="your-service-role"
 ```
 
-## Insert
+Then in rxconfig.py add...
+
+```python
+from dotenv import load_dotenv
+
+load_dotenv()
+
+api_key = os.getenv("api_key")
+api_url = os.getenv("api_url")
+jwt_secret = os.getenv("jwt_secret")
+# service_role = os.getenv("service_role") Only for admin use.
+
+config = rx.Config(
+    # You may have a few entries here...
+    suplex={
+        "api_url": api_url,
+        "api_key": api_key,
+        "jwt_secret": jwt_secret
+        "cookie_max_age": 3600 # (Optional) Seconds until cookie expires, otherwise is a session cookie.
+    } 
+)
+```
+
+## Subclassing
 
 Import Suplex, and subclass the module at the base layer.
 
@@ -35,7 +59,7 @@ class BaseState(Suplex):
     # Your class below...
 ```
 
-## Subclass
+## Other Subclassing
 
 For any other classes within your Reflex project, subclass your BaseState to give them access to the auth information and query methods.
 
@@ -59,8 +83,6 @@ self.refresh_token
 ```
 
 You won't need to do anything with those tokens directly, as there are a ton of helper vars and functions to extract relevant details, get user objects, and refresh sessions.
-
-
 
 ### Auth Functions
 
@@ -120,8 +142,6 @@ class BaseState(Suplex):
 ### Auth Vars
 
 There is a full set of vars that pull values from the signed JWT that gets provided from Supabase in the form of an access_token. These vars pull those claims. If you don't want to use local information and instead only want to rely on a user object pulled directly from Supabase then you will want to use the get_user() function and parse the user object directly.
-
-
 
 - user_id
 
@@ -185,7 +205,6 @@ class BaseState(Suplex):
     def auth_flow(self) -> rx.Event:
         if not self.user_is_authenticated:
             return rx.redirect("/login")
-        
 ```
 
 ---
