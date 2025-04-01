@@ -209,6 +209,16 @@ class Query(rx.Base):
         """
         self._order = f"order={column}.{('asc' if ascending else 'desc')}"
         return self
+    
+    def rpc(self, function: str, params: Optional[Dict[Any, Any]] = None) -> Self:
+        """
+        Call a remote procedure (Postgres function) deployed in Supabase.
+        https://supabase.com/docs/reference/python/rpc
+        """
+        self._table = f"rpc/{function}"
+        self._data = params or {}
+        self._method = "post"
+        return self
 
     def limit(self, limit: int) -> Self:
         """
@@ -949,3 +959,100 @@ class Suplex(rx.State):
             self.access_token = ""
             self.refresh_token = ""
             self.query.bearer_token = ""
+
+    def exchange_code_for_session(
+        self,
+        auth_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Exchange an authorization code for a user session.
+        
+        This method is used in OAuth flows to convert the authorization code
+        received after a successful OAuth authentication into a user session
+        with access and refresh tokens.
+        
+        Args:
+            auth_data: Dictionary containing the authorization code with key 'auth_code'
+            
+        Returns:
+            Dict containing session data including access_token, refresh_token, and user object
+            
+        Raises:
+            ValueError: If auth_code is not provided in the auth_data
+            httpx.HTTPStatusError: If the API request fails (e.g., invalid code)
+            
+        Note:
+            This method automatically updates the stored access and refresh tokens
+            upon successful exchange. It should be called after the user is redirected
+            back from the OAuth provider.
+        """
+        if not auth_data or "auth_code" not in auth_data:
+            raise ValueError("Authorization code must be provided in auth_data dictionary with key 'auth_code'.")
+            
+        url = f"{self._api_url}/auth/v1/token?grant_type=authorization_code"
+        data = {"code": auth_data["auth_code"]}
+        headers = {
+            "apikey": self._api_key,
+        }
+        response = httpx.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        response_data = response.json()
+        self.access_token = response_data["access_token"]
+        self.refresh_token = response_data["refresh_token"]
+        
+        return response_data
+
+    def reset_password_email(
+        self,
+        email: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Send a password reset email to the specified email address.
+        
+        This method initiates the password reset flow by sending an email
+        with a reset link to the user's email address.
+        
+        Args:
+            email: The email address of the user requesting a password reset (required)
+            options: Additional options for the password reset process:
+                - redirect_to: URL to redirect after password reset (See Note)
+                - captcha_token: Token from a captcha provider (See Note)
+                
+        Returns:
+            Dict containing the API response data
+            
+        Raises:
+            ValueError: If email is not provided
+            httpx.HTTPStatusError: If the API request fails
+            
+        Note:
+            The user will receive an email with a link to reset their password.
+
+            IMPORTANT: For some bizzare reason, the REST API does not take a redirect-to parameter. 
+            The email link will redirect to the default redirect URL (called Site-URL) in your 
+            Supabase project.  My workaround was to intercept the access token and 
+            manually redirect to the appropriate url when self.router.page.params["type"] 
+            is "recovery".
+        """
+        if not email:
+            raise ValueError("Email must be provided.")
+            
+        data = {"email": email}
+        url = f"{self._api_url}/auth/v1/recover"
+        headers = {
+            "apikey": self._api_key,
+        }
+
+        # In case supabase ever matches the REST API with the Client SDKs
+        # if options:
+        #     if "redirect_to" in options:
+        #         data["redirect_to"] = options.pop("redirect_to")
+        #     if "captcha_token" in options:
+        #         data["captcha_token"] = options.pop("captcha_token")
+
+        response = httpx.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        return response.json()
