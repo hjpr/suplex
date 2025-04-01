@@ -47,7 +47,8 @@ config = rx.Config(
         "api_url": api_url,
         "api_key": api_key,
         "jwt_secret": jwt_secret
-        "cookie_max_age": 3600 # (Optional) Seconds until cookie expires, otherwise is a session cookie.
+        "let_jwt_expire": False # (Optional: Default is False) Tokens are not automatically refreshed
+        "cookie_max_age": 3600 # (Optional: Default = None) Seconds until cookie expires, otherwise is a session cookie.
     } 
 )
 ```
@@ -223,6 +224,8 @@ class BaseState(Suplex):
 For making database queries where a user's inactivity might cause a token to go stale and raise a 401 status when user clicks a submit or other database action.
 
 Pass the event to a session manager. This manager will attempt to refresh a stale session, and if that fails, you can specify an event to trigger like sending user to re-login.
+
+If let_tokens_expire is passed as True, then the session manager will not refresh the session and will simply trigger the event on_failure if a token is expired.
 
 ```python
 # Frontend

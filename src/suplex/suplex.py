@@ -466,11 +466,12 @@ class Suplex(rx.State):
         max_age=rx.config.get_config().suplex.get("cookie_max_age", None) # type: ignore
     )
     
-    # API and auth keys
-    _api_url: str | None = None
-    _api_key: str | None = None
-    _jwt_secret: str | None = None
-    _service_role: str | None = None
+    # Load from config in rxconfig.py
+    _api_url: str = rx.config.get_config().suplex["api_url"]
+    _api_key: str = rx.config.get_config().suplex["api_key"]
+    _jwt_secret: str = rx.config.get_config().suplex["jwt_secret"]
+    _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
+    let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
 
     # Query class
     query: Query = Query()
@@ -487,11 +488,6 @@ class Suplex(rx.State):
         missing_keys = required_keys - config.suplex.keys() # type: ignore
         if missing_keys:
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
-
-        self._api_url = config.suplex["api_url"] # type: ignore
-        self._api_key = config.suplex["api_key"] # type: ignore
-        self._jwt_secret = config.suplex["jwt_secret"] # type: ignore
-        self._service_role = config.suplex.get("service_role", None) # type: ignore
 
     @rx.var
     def load_bearer_into_query(self) -> None:
@@ -884,7 +880,7 @@ class Suplex(rx.State):
             This method will clear auth tokens if an error occurs.
             Use get_session() to retrieve the JWT token claims instead of the full user profile.
         """
-        if self.user_token_expired:
+        if self.user_token_expired and not self.let_jwt_expire:
             self.refresh_session()
 
         response = httpx.get(
@@ -923,7 +919,7 @@ class Suplex(rx.State):
             ValueError: If no access token exists (user not authenticated)
             httpx.HTTPStatusError: If the API request fails
         """
-        if self.user_token_expired:
+        if self.user_token_expired and not self.let_jwt_expire:
             self.refresh_session()
         if not self.access_token:
             raise ValueError("Expected access token to update user information.")
@@ -954,7 +950,7 @@ class Suplex(rx.State):
 
     def refresh_session(self) -> Dict[str, Any] | None:
         """
-        Refresh the authentication session using the refresh token.
+        Manually refresh the authentication session using the refresh token.
         
         This method uses the stored refresh token to obtain a new access token
         when the current one expires. It automatically updates the token storage
@@ -1086,14 +1082,14 @@ class Suplex(rx.State):
             self,
             event: Callable,
             on_failure: Optional[Callable] | None = None
-            ) -> Callable | None:
+            ) -> Callable:
         """
         Use this for ensuring that access_token and refresh_token are refreshed prior
         to executing an event. Optionally pass in an event to trigger if authentication
         fails. This can be used to redirect user to login page, show an error message
         etc.
 
-        Refresh also happens automatically when get_user() or get_session() are called.
+        Tokens are not refreshed if the user has set let_jwt_expire to True in the config.
 
          - example:
             on_click=BaseState.session_manager(
@@ -1104,11 +1100,21 @@ class Suplex(rx.State):
         Args:
             on_failure: Callback function to call on failed authentication
 
+        Returns:
+            event: The original event if authentication is successful, or not needed
+            on_failure: The provided callback function if authentication fails
+
         Exceptions:
             Passes exceptions through if refresh fails and on_failure not provided.
         """
-        if self.user_token_expired:
-            # Attempt to refresh the session
+        if self.let_jwt_expire:
+            # User doesn't want to refresh tokens automatically
+            if self.user_token_expired:
+                return on_failure
+            else:
+                return event
+        elif self.user_token_expired:
+            # User does want to refresh, and token is expired
             try:
                 session = self.refresh_session()
                 if session:
@@ -1117,6 +1123,8 @@ class Suplex(rx.State):
                 if on_failure:
                     return on_failure
                 else:
+                    # Pass exception through as no on_failure provided
                     raise e
         else:
+            # User does want to refresh, and token is not expired
             return event
