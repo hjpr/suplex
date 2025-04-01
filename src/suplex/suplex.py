@@ -1030,7 +1030,7 @@ class Suplex(rx.State):
         Note:
             The user will receive an email with a link to reset their password.
 
-            IMPORTANT: For some bizzare reason, the REST API does not take a redirect-to parameter. 
+            IMPORTANT: For some reason, the REST API does not take a redirect-to parameter. 
             The email link will redirect to the default redirect URL (called Site-URL) in your 
             Supabase project.  My workaround was to intercept the access token and 
             manually redirect to the appropriate url when self.router.page.params["type"] 
