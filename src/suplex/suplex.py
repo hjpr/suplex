@@ -493,10 +493,6 @@ class Suplex(rx.State):
         self._jwt_secret = config.suplex["jwt_secret"] # type: ignore
         self._service_role = config.suplex.get("service_role", None) # type: ignore
 
-        # Handle default cookie behavior as set by config
-        default_cookie_behavior = config.suplex.get("default_cookie_behavior", "session") # type: ignore
-        max_age: int | None = config.suplex.get("max_age", None) # type: ignore
-
     @rx.var
     def load_bearer_into_query(self) -> None:
         """
@@ -767,7 +763,9 @@ class Suplex(rx.State):
                 - query_params: Additional parameters to include in the OAuth request
                 
         Returns:
-            A URL string to redirect the user to for OAuth authentication.
+            A URL string to redirect the user to for OAuth authentication. When user 
+            successfully authenticates, they will be redirected back to the redirect_to URL.
+            Parse the URL for the tokens and use set_tokens() to store them.
             
         Raises:
             ValueError: If the provider is not supported.
@@ -782,9 +780,6 @@ class Suplex(rx.State):
             "apikey": self._api_key,
         }
         url = f"{self._api_url}/auth/v1/authorize"
-        headers = {
-            "apikey": self._api_key
-        }
         data["provider"] = provider
         if options:
             if "redirect_to" in options:
@@ -802,6 +797,18 @@ class Suplex(rx.State):
         # If not a redirect response, check for other errors
         response.raise_for_status()
         raise ValueError("Expected a redirect response from OAuth provider, but none was received.")
+    
+    def set_tokens(self, access_token: str, refresh_token:str) -> None:
+        """
+        Ensures that query is also updated whenever tokens are set.
+
+        Args:
+            access_token: The JWT access token for authentication.
+            refresh_token: The refresh token for session management.
+        """
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.query.bearer_token = access_token
     
     def reset_password_email(
         self,
@@ -916,6 +923,8 @@ class Suplex(rx.State):
             ValueError: If no access token exists (user not authenticated)
             httpx.HTTPStatusError: If the API request fails
         """
+        if self.user_token_expired:
+            self.refresh_session()
         if not self.access_token:
             raise ValueError("Expected access token to update user information.")
 
@@ -976,10 +985,10 @@ class Suplex(rx.State):
 
         data = response.json()
 
-        self.access_token = data["access_token"]
-        self.refresh_token = data["refresh_token"]
-        self.query.bearer_token = data["access_token"]
-
+        self.set_tokens(
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"],
+        )
         return data["user"]
 
     def get_settings(self) -> Dict[str, Any]:
@@ -1020,19 +1029,13 @@ class Suplex(rx.State):
             }
             response = httpx.post(url, headers=headers)
 
-            # Clear tokens
-            self.access_token = ""
-            self.refresh_token = ""
-            self.query.bearer_token = ""
-
             # Up to dev how to handle if server exception occurs, but locally user will be logged out.
             response.raise_for_status()
+            self.reset()
 
         else:
-            # Clear tokens if no access token exists
-            self.access_token = ""
-            self.refresh_token = ""
-            self.query.bearer_token = ""
+            # Reset state
+            self.reset()
 
     def exchange_code_for_session(
         self,
@@ -1072,10 +1075,11 @@ class Suplex(rx.State):
         response.raise_for_status()
         
         response_data = response.json()
-        self.access_token = response_data["access_token"]
-        self.refresh_token = response_data["refresh_token"]
-        self.query.bearer_token = response_data["access_token"]
-        
+        self.set_tokens(
+            access_token=response_data["access_token"],
+            refresh_token=response_data["refresh_token"],
+        )
+
         return response_data
     
     def session_manager(
