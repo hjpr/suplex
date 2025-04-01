@@ -3,7 +3,7 @@ import jwt
 import reflex as rx
 import time
 
-from typing import Any, Dict, List, Literal, Optional, Self
+from typing import Any, Callable, Dict, List, Literal, Optional, Self
 from urllib.parse import quote
 
 class Query(rx.Base):
@@ -500,13 +500,17 @@ class Suplex(rx.State):
     @rx.var
     def load_bearer_into_query(self) -> None:
         """
-        A cheeky hack. Normally we can't access browser cookies when query is
-        instantiated, but using this var we can set the access_token when the
-        state has loaded prior to user interaction. Otherwise if a persistent
-        cookie was set, the user would have an access_token and be "logged in"
-        but not able to run queries as the bearer token would be empty.
+        A cheeky hack. When all the State modules are loaded, cookies stored
+        in the browser are not yet available. If a user were to have unexpired
+        persistent cookies in the browser, the auth module would have access
+        to those cookies but after it is loaded, the query module would not.
+        The user would be "authenticated" but the query module would not have
+        access to the bearer token. This function loads the bearer token when
+        Vars are calculated which is after all the State modules are loaded, and
+        the cookies are available.
         """
-        self.query.bearer_token = self.access_token
+        if not self.query.bearer_token:
+            self.query.bearer_token = self.access_token
 
     @rx.var
     def claims(self) -> Dict[str, Any] | None:
@@ -612,7 +616,10 @@ class Suplex(rx.State):
     
     @rx.var
     def user_token_expired(self) -> bool:
-        """Give 10 seconds of leeway for token expiration for a slow request."""
+        """
+        Manual check that user can user prior to request.
+        Give 10 seconds of leeway for token expiration for a slow request.
+        """
         if self.claims:
             return True if self.claims_expire_at + 10 < time.time() else False
         return False
@@ -771,6 +778,9 @@ class Suplex(rx.State):
             the user to the OAuth provider's login page.
         """
         data = {}
+        headers = {
+            "apikey": self._api_key,
+        }
         url = f"{self._api_url}/auth/v1/authorize"
         headers = {
             "apikey": self._api_key
@@ -792,6 +802,60 @@ class Suplex(rx.State):
         # If not a redirect response, check for other errors
         response.raise_for_status()
         raise ValueError("Expected a redirect response from OAuth provider, but none was received.")
+    
+    def reset_password_email(
+        self,
+        email: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Send a password reset email to the specified email address.
+        
+        This method initiates the password reset flow by sending an email
+        with a reset link to the user's email address.
+        
+        Args:
+            email: The email address of the user requesting a password reset (required)
+            options: Additional options for the password reset process:
+                - redirect_to: URL to redirect after password reset (See Note)
+                - captcha_token: Token from a captcha provider (See Note)
+                
+        Returns:
+            Dict containing the API response data
+            
+        Raises:
+            ValueError: If email is not provided
+            httpx.HTTPStatusError: If the API request fails
+            
+        Note:
+            The user will receive an email with a link to reset their password.
+
+            IMPORTANT: For some reason, the REST API does not take a redirect-to parameter. 
+            The email link will redirect to the default redirect URL (called Site-URL) in your 
+            Supabase project.  My workaround was to intercept the access token and 
+            manually redirect to the appropriate url when self.router.page.params["type"] 
+            is "recovery".
+        """
+        if not email:
+            raise ValueError("Email must be provided.")
+            
+        data = {"email": email}
+        url = f"{self._api_url}/auth/v1/recover"
+        headers = {
+            "apikey": self._api_key,
+        }
+
+        # In case supabase ever matches the REST API with the Client SDKs
+        # if options:
+        #     if "redirect_to" in options:
+        #         data["redirect_to"] = options.pop("redirect_to")
+        #     if "captcha_token" in options:
+        #         data["captcha_token"] = options.pop("captcha_token")
+
+        response = httpx.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        return response.json()
 
     def get_user(self) -> Optional[Dict[str, Any]]:
         """
@@ -813,6 +877,9 @@ class Suplex(rx.State):
             This method will clear auth tokens if an error occurs.
             Use get_session() to retrieve the JWT token claims instead of the full user profile.
         """
+        if self.user_token_expired:
+            self.refresh_session()
+
         response = httpx.get(
             f"{self._api_url}/auth/v1/user",
             headers={
@@ -907,9 +974,13 @@ class Suplex(rx.State):
         )
         response.raise_for_status()
 
-        self.access_token = response.json()["access_token"]
-        self.refresh_token = response.json()["refresh_token"]
-        return response.json()["user"]
+        data = response.json()
+
+        self.access_token = data["access_token"]
+        self.refresh_token = data["refresh_token"]
+        self.query.bearer_token = data["access_token"]
+
+        return data["user"]
 
     def get_settings(self) -> Dict[str, Any]:
         """
@@ -1006,57 +1077,42 @@ class Suplex(rx.State):
         self.query.bearer_token = response_data["access_token"]
         
         return response_data
-
-    def reset_password_email(
-        self,
-        email: str,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    
+    def session_manager(
+            self,
+            event: Callable,
+            on_failure: Optional[Callable] | None = None
+            ) -> Callable | None:
         """
-        Send a password reset email to the specified email address.
-        
-        This method initiates the password reset flow by sending an email
-        with a reset link to the user's email address.
-        
+        Use this for ensuring that access_token and refresh_token are refreshed prior
+        to executing an event. Optionally pass in an event to trigger if authentication
+        fails. This can be used to redirect user to login page, show an error message
+        etc.
+
+        Refresh also happens automatically when get_user() or get_session() are called.
+
+         - example:
+            on_click=BaseState.session_manager(
+                event=BaseState.get_a_value_from_db(),
+                on_failure=BaseState.redirect_to_login()
+            )
+
         Args:
-            email: The email address of the user requesting a password reset (required)
-            options: Additional options for the password reset process:
-                - redirect_to: URL to redirect after password reset (See Note)
-                - captcha_token: Token from a captcha provider (See Note)
-                
-        Returns:
-            Dict containing the API response data
-            
-        Raises:
-            ValueError: If email is not provided
-            httpx.HTTPStatusError: If the API request fails
-            
-        Note:
-            The user will receive an email with a link to reset their password.
+            on_failure: Callback function to call on failed authentication
 
-            IMPORTANT: For some reason, the REST API does not take a redirect-to parameter. 
-            The email link will redirect to the default redirect URL (called Site-URL) in your 
-            Supabase project.  My workaround was to intercept the access token and 
-            manually redirect to the appropriate url when self.router.page.params["type"] 
-            is "recovery".
+        Exceptions:
+            Passes exceptions through if refresh fails and on_failure not provided.
         """
-        if not email:
-            raise ValueError("Email must be provided.")
-            
-        data = {"email": email}
-        url = f"{self._api_url}/auth/v1/recover"
-        headers = {
-            "apikey": self._api_key,
-        }
-
-        # In case supabase ever matches the REST API with the Client SDKs
-        # if options:
-        #     if "redirect_to" in options:
-        #         data["redirect_to"] = options.pop("redirect_to")
-        #     if "captcha_token" in options:
-        #         data["captcha_token"] = options.pop("captcha_token")
-
-        response = httpx.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        
-        return response.json()
+        if self.user_token_expired:
+            # Attempt to refresh the session
+            try:
+                session = self.refresh_session()
+                if session:
+                    return event
+            except Exception as e:
+                if on_failure:
+                    return on_failure
+                else:
+                    raise e
+        else:
+            return event
