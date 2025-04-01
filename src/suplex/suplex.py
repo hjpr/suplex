@@ -772,6 +772,9 @@ class Suplex(rx.State):
         """
         data = {}
         url = f"{self._api_url}/auth/v1/authorize"
+        headers = {
+            "apikey": self._api_key
+        }
         data["provider"] = provider
         if options:
             if "redirect_to" in options:
@@ -781,7 +784,7 @@ class Suplex(rx.State):
             if "query_params" in options:
                 data["query_params"] = options.pop("query_params")
 
-        response = httpx.get(url, headers=self._headers, params=data)
+        response = httpx.get(url, headers=headers, params=data)
 
         if response.status_code == 302:
             return response.headers["location"]
@@ -1000,6 +1003,7 @@ class Suplex(rx.State):
         response_data = response.json()
         self.access_token = response_data["access_token"]
         self.refresh_token = response_data["refresh_token"]
+        self.query.bearer_token = response_data["access_token"]
         
         return response_data
 
