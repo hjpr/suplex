@@ -1,6 +1,6 @@
 # Suplex
 
-Simple state module to manage user auth and create database queries.
+Simple state module to manage user auth and create database queries with the Reflex web framework.
 
 ---
 
@@ -13,7 +13,7 @@ uv add suplex # Preferred
 # or
 pip install suplex # Untested
 # or
-git clone https://github.com/hjpr/suplex.git # Requires manual setup
+git clone https://github.com/hjpr/suplex.git # Requires manual setup and import
 ```
 
 ## Environment Variables
@@ -225,7 +225,7 @@ For making database queries where a user's inactivity might cause a token to go 
 
 Pass the event to a session manager. This manager will attempt to refresh a stale session, and if that fails, you can specify an event to trigger like sending user to re-login.
 
-If let_tokens_expire is passed as True, then the session manager will not refresh the session and will simply trigger the event on_failure if a token is expired.
+If let_jwt_expire is passed as True, then the session manager will not refresh the session and will simply trigger the event on_failure if a token is expired.
 
 ```python
 # Frontend
