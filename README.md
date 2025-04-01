@@ -25,6 +25,8 @@ jwt_secret="your-jwt-secret"
 service_role="your-service-role"
 ```
 
+These values can be retrieved from Supabase. Log In >> Choose Project >> Project Settings >> Data API
+
 Then in rxconfig.py add...
 
 ```python
