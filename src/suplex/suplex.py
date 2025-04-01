@@ -1081,7 +1081,7 @@ class Suplex(rx.State):
     def session_manager(
             self,
             event: Callable,
-            on_failure: Optional[Callable] | None = None
+            on_failure: Optional[List[Callable]] | Optional[Callable] | None = None
             ) -> Callable:
         """
         Use this for ensuring that access_token and refresh_token are refreshed prior
@@ -1098,7 +1098,7 @@ class Suplex(rx.State):
             )
 
         Args:
-            on_failure: Callback function to call on failed authentication
+            on_failure: Callback event - or list of events - to call on failed authentication
 
         Returns:
             event: The original event if authentication is successful, or not needed
