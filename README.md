@@ -47,7 +47,7 @@ config = rx.Config(
         "api_url": api_url,
         "api_key": api_key,
         "jwt_secret": jwt_secret
-        "let_jwt_expire": False # (Optional: Default is False) Tokens are not automatically refreshed
+        "let_jwt_expire": False # (Optional: Default is False) Specify if tokens auto refresh. Can set to True for tighter/manual control of token refresh
         "cookie_max_age": 3600 # (Optional: Default = None) Seconds until cookie expires, otherwise is a session cookie.
     } 
 )
