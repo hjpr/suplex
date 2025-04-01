@@ -501,7 +501,7 @@ class Suplex(rx.State):
         Vars are calculated which is after all the State modules are loaded, and
         the cookies are available.
         """
-        if not self.query.bearer_token:
+        if not self.query.bearer_token and self.access_token:
             self.query.bearer_token = self.access_token
 
     @rx.var
@@ -717,10 +717,10 @@ class Suplex(rx.State):
 
         response_data = response.json()
 
-        self.access_token = response_data["access_token"]
-        self.query.bearer_token = response_data["access_token"]
-        self.refresh_token = response_data["refresh_token"]
-
+        self.set_tokens(
+            self.access_token,
+            self.refresh_token
+        )
         return response_data
 
     def sign_in_with_oauth(
