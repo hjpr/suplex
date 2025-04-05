@@ -1,6 +1,6 @@
 # Suplex
 
-Simple state module to manage user auth and create database queries.
+Simple state module to manage user auth and create database queries with the Reflex web framework.
 
 ---
 
@@ -9,9 +9,11 @@ Simple state module to manage user auth and create database queries.
 Add Suplex to your project.
 
 ```bash
-uv add suplex
+uv add suplex # Preferred
 # or
-pip install suplex
+pip install suplex # Untested
+# or
+git clone https://github.com/hjpr/suplex.git # Requires manual setup and import
 ```
 
 ## Environment Variables
@@ -45,7 +47,8 @@ config = rx.Config(
         "api_url": api_url,
         "api_key": api_key,
         "jwt_secret": jwt_secret
-        "cookie_max_age": 3600 # (Optional) Seconds until cookie expires, otherwise is a session cookie.
+        "let_jwt_expire": False # (Optional: Default is False) Specify if tokens auto refresh. Can set to True for tighter/manual control of token refresh
+        "cookie_max_age": 3600 # (Optional: Default = None) Seconds until cookie expires, otherwise is a session cookie.
     } 
 )
 ```
@@ -94,6 +97,12 @@ You won't need to do anything with those tokens directly, as there are a ton of 
 
 - sign_in_with_oauth()
 
+- exchange_code_for_session()
+
+- set_tokens()
+
+- reset_password_email()
+
 - get_user()
 
 - update_user()
@@ -103,6 +112,8 @@ You won't need to do anything with those tokens directly, as there are a ton of 
 - get_settings()
 
 - log_out()
+
+- session_manager()
 
 Check docstrings for params, returns and exceptions.
 
@@ -130,7 +141,6 @@ class BaseState(Suplex):
             # Refresh token here and try again.
         except Exception:
             yield rx.toast.error("Updating user info failed.")
-
 
     def log_out(self):
         try:
@@ -181,7 +191,7 @@ def auth_component() -> rx.Component:
     # Show only if user is logged in.
     return rx.cond(
         BaseState.user_is_authenticated,
-        rx.shown_if_authenticated(),
+        rx.shown_if_authencated(),
         rx.shown_if_not_authenticated()
 )
 
@@ -204,9 +214,28 @@ def recipes() -> rx.Component:
 
 class BaseState(Suplex):
 
-    def auth_flow(self) -> rx.Event:
+    def auth_flow(self) -> Callable:
         if not self.user_is_authenticated:
             return rx.redirect("/login")
+```
+
+### Session Manager
+
+For making database queries where a user's inactivity might cause a token to go stale and raise a 401 status when user clicks a submit or other database action.
+
+Pass the event to a session manager. This manager will attempt to refresh a stale session, and if that fails, you can specify an event to trigger like sending user to re-login.
+
+If let_jwt_expire is passed as True, then the session manager will not refresh the session and will simply trigger the event on_failure if a token is expired.
+
+```python
+# Frontend
+def database_component() -> rx.Component:
+    return rx.button(
+        on_click=BaseState.session_manager(
+            BaseState.retrieve_database_info,
+            on_failure=rx.redirect("/login")
+        )
+)
 ```
 
 ---

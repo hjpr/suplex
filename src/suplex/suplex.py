@@ -3,7 +3,7 @@ import jwt
 import reflex as rx
 import time
 
-from typing import Any, Dict, List, Literal, Optional, Self
+from typing import Any, Callable, Dict, List, Literal, Optional, Self
 from urllib.parse import quote
 
 class Query(rx.Base):
@@ -474,11 +474,12 @@ class Suplex(rx.State):
         max_age=rx.config.get_config().suplex.get("cookie_max_age", None) # type: ignore
     )
     
-    # API and auth keys
-    _api_url: str | None = None
-    _api_key: str | None = None
-    _jwt_secret: str | None = None
-    _service_role: str | None = None
+    # Load from config in rxconfig.py
+    _api_url: str = rx.config.get_config().suplex["api_url"]
+    _api_key: str = rx.config.get_config().suplex["api_key"]
+    _jwt_secret: str = rx.config.get_config().suplex["jwt_secret"]
+    _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
+    let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
 
     # Query class
     query: Query = Query()
@@ -496,25 +497,20 @@ class Suplex(rx.State):
         if missing_keys:
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
 
-        self._api_url = config.suplex["api_url"] # type: ignore
-        self._api_key = config.suplex["api_key"] # type: ignore
-        self._jwt_secret = config.suplex["jwt_secret"] # type: ignore
-        self._service_role = config.suplex.get("service_role", None) # type: ignore
-
-        # Handle default cookie behavior as set by config
-        default_cookie_behavior = config.suplex.get("default_cookie_behavior", "session") # type: ignore
-        max_age: int | None = config.suplex.get("max_age", None) # type: ignore
-
     @rx.var
     def load_bearer_into_query(self) -> None:
         """
-        A cheeky hack. Normally we can't access browser cookies when query is
-        instantiated, but using this var we can set the access_token when the
-        state has loaded prior to user interaction. Otherwise if a persistent
-        cookie was set, the user would have an access_token and be "logged in"
-        but not able to run queries as the bearer token would be empty.
+        A cheeky hack. When all the State modules are loaded, cookies stored
+        in the browser are not yet available. If a user were to have unexpired
+        persistent cookies in the browser, the auth module would have access
+        to those cookies but after it is loaded, the query module would not.
+        The user would be "authenticated" but the query module would not have
+        access to the bearer token. This function loads the bearer token when
+        Vars are calculated which is after all the State modules are loaded, and
+        the cookies are available.
         """
-        self.query.bearer_token = self.access_token
+        if not self.query.bearer_token and self.access_token:
+            self.query.bearer_token = self.access_token
 
     @rx.var
     def claims(self) -> Dict[str, Any] | None:
@@ -620,7 +616,10 @@ class Suplex(rx.State):
     
     @rx.var
     def user_token_expired(self) -> bool:
-        """Give 10 seconds of leeway for token expiration for a slow request."""
+        """
+        Manual check that user can user prior to request.
+        Give 10 seconds of leeway for token expiration for a slow request.
+        """
         if self.claims:
             return True if self.claims_expire_at + 10 < time.time() else False
         return False
@@ -726,10 +725,10 @@ class Suplex(rx.State):
 
         response_data = response.json()
 
-        self.access_token = response_data["access_token"]
-        self.query.bearer_token = response_data["access_token"]
-        self.refresh_token = response_data["refresh_token"]
-
+        self.set_tokens(
+            self.access_token,
+            self.refresh_token
+        )
         return response_data
 
     def sign_in_with_oauth(
@@ -768,7 +767,9 @@ class Suplex(rx.State):
                 - query_params: Additional parameters to include in the OAuth request
                 
         Returns:
-            A URL string to redirect the user to for OAuth authentication.
+            A URL string to redirect the user to for OAuth authentication. When user 
+            successfully authenticates, they will be redirected back to the redirect_to URL.
+            Parse the URL for the tokens and use set_tokens() to store them.
             
         Raises:
             ValueError: If the provider is not supported.
@@ -779,10 +780,10 @@ class Suplex(rx.State):
             the user to the OAuth provider's login page.
         """
         data = {}
-        url = f"{self._api_url}/auth/v1/authorize"
         headers = {
-            "apikey": self._api_key
+            "apikey": self._api_key,
         }
+        url = f"{self._api_url}/auth/v1/authorize"
         data["provider"] = provider
         if options:
             if "redirect_to" in options:
@@ -800,221 +801,19 @@ class Suplex(rx.State):
         # If not a redirect response, check for other errors
         response.raise_for_status()
         raise ValueError("Expected a redirect response from OAuth provider, but none was received.")
-
-    def get_user(self) -> Optional[Dict[str, Any]]:
+    
+    def set_tokens(self, access_token: str, refresh_token:str) -> None:
         """
-        Retrieve the current authenticated user's data from the database.
-        
-        This method gets the current user information from the Supabase API.
-        It first verifies that the session is valid, and if not, returns None.
-        
+        Ensures that query is also updated whenever tokens are set.
+
         Args:
-            None
-            
-        Returns:
-            A dictionary containing the user data if authenticated, or None if:
-            - No valid session exists
-            - The access token is expired and refresh fails
-            - Any error occurs during API request
-            
-        Note:
-            This method will clear auth tokens if an error occurs.
-            Use get_session() to retrieve the JWT token claims instead of the full user profile.
+            access_token: The JWT access token for authentication.
+            refresh_token: The refresh token for session management.
         """
-        response = httpx.get(
-            f"{self._api_url}/auth/v1/user",
-            headers={
-                "apikey": self._api_key,
-                "Authorization": f"Bearer {self.access_token}",
-            },
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def update_user(
-        self,
-        email: Optional[str] = None,
-        phone: Optional[str] = None,
-        password: Optional[str] = None,
-        user_metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Update the current user's profile information.
-        
-        This method updates one or more user attributes including email,
-        phone number, password, or custom metadata.
-        
-        Args:
-            email: New email address for the user
-            phone: New phone number for the user
-            password: New password for the user
-            user_metadata: Dictionary of custom metadata to store with the user profile
-            
-        Returns:
-            Dictionary containing the updated user data
-            
-        Raises:
-            ValueError: If no access token exists (user not authenticated)
-            httpx.HTTPStatusError: If the API request fails
-        """
-        if not self.access_token:
-            raise ValueError("Expected access token to update user information.")
-
-        data = {}
-        url = f"{self._api_url}/auth/v1/user"
-        headers = {
-            "apikey": self._api_key,
-            "Authorization": f"Bearer {self.access_token}",
-        }
-
-        if email:
-            data["email"] = email
-        if phone:
-            data["phone"] = phone
-        if password:
-            data["password"] = password
-        if user_metadata:
-            data["data"] = user_metadata
-            
-        if not data:
-            raise ValueError("At least one attribute (email, phone, password, or user_metadata) must be provided to update.")
-
-        response = httpx.put(url, headers=headers, json=data)
-        response.raise_for_status()
-
-        return response.json()
-
-    def refresh_session(self) -> Dict[str, Any] | None:
-        """
-        Refresh the authentication session using the refresh token.
-        
-        This method uses the stored refresh token to obtain a new access token
-        when the current one expires. It automatically updates the token storage
-        if successful.
-        
-        Returns:
-            - Dictionary containing the user data if refresh successful.
-            - None if:
-                - No refresh token exists
-                - Refresh token is expired or invalid
-                - API request fails for any reason
-
-        Raises:
-            httpx.HTTPStatusError: If the API request fails
-            KeyError: If the expected keys are not present in the response
-        """
-        url = f"{self._api_url}/auth/v1/token?grant_type=refresh_token"
-        headers = {
-            "apikey": self._api_key,
-            "Authorization": f"Bearer {self.access_token}",
-        }
-        response = httpx.post(
-            url, 
-            headers=headers, 
-            json={"refresh_token": self.refresh_token}
-        )
-        response.raise_for_status()
-
-        self.access_token = response.json()["access_token"]
-        self.refresh_token = response.json()["refresh_token"]
-        return response.json()["user"]
-
-    def get_settings(self) -> Dict[str, Any]:
-        """
-        Retrieve the authentication settings for the Supabase project.
-        
-        This method fetches the authentication configuration settings from
-        the Supabase API, including enabled providers and security settings.
-            
-        Returns:
-            Dictionary containing the authentication settings
-            
-        Raises:
-            httpx.HTTPStatusError: If the API request fails
-        """
-        url = f"{self._api_url}/auth/v1/settings"
-        headers = {
-            "apikey": self._api_key,
-        }
-        response = httpx.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-
-    def log_out(self) -> None:
-        """
-        Log out the current user and invalidate the refresh token on Supabase.
-        Clears cookies and the bearer token from the query object.
-            
-        Raises:
-            httpx.HTTPStatusError: If the API request fails.
-        """
-        # Only attempt server-side logout if we have an access token
-        if self.access_token:
-            url = f"{self._api_url}/auth/v1/logout"
-            headers = {
-                "apikey": self._api_key,
-                "Authorization": f"Bearer {self.access_token}",
-            }
-            response = httpx.post(url, headers=headers)
-
-            # Clear tokens
-            self.access_token = ""
-            self.refresh_token = ""
-            self.query.bearer_token = ""
-
-            # Up to dev how to handle if server exception occurs, but locally user will be logged out.
-            response.raise_for_status()
-
-        else:
-            # Clear tokens if no access token exists
-            self.access_token = ""
-            self.refresh_token = ""
-            self.query.bearer_token = ""
-
-    def exchange_code_for_session(
-        self,
-        auth_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Exchange an authorization code for a user session.
-        
-        This method is used in OAuth flows to convert the authorization code
-        received after a successful OAuth authentication into a user session
-        with access and refresh tokens.
-        
-        Args:
-            auth_data: Dictionary containing the authorization code with key 'auth_code'
-            
-        Returns:
-            Dict containing session data including access_token, refresh_token, and user object
-            
-        Raises:
-            ValueError: If auth_code is not provided in the auth_data
-            httpx.HTTPStatusError: If the API request fails (e.g., invalid code)
-            
-        Note:
-            This method automatically updates the stored access and refresh tokens
-            upon successful exchange. It should be called after the user is redirected
-            back from the OAuth provider.
-        """
-        if not auth_data or "auth_code" not in auth_data:
-            raise ValueError("Authorization code must be provided in auth_data dictionary with key 'auth_code'.")
-            
-        url = f"{self._api_url}/auth/v1/token?grant_type=authorization_code"
-        data = {"code": auth_data["auth_code"]}
-        headers = {
-            "apikey": self._api_key,
-        }
-        response = httpx.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        
-        response_data = response.json()
-        self.access_token = response_data["access_token"]
-        self.refresh_token = response_data["refresh_token"]
-        self.query.bearer_token = response_data["access_token"]
-        
-        return response_data
-
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.query.bearer_token = access_token
+    
     def reset_password_email(
         self,
         email: str,
@@ -1068,3 +867,272 @@ class Suplex(rx.State):
         response.raise_for_status()
         
         return response.json()
+
+    def get_user(self) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve the current authenticated user's data from the database.
+        
+        This method gets the current user information from the Supabase API.
+        It first verifies that the session is valid, and if not, returns None.
+        
+        Args:
+            None
+            
+        Returns:
+            A dictionary containing the user data if authenticated, or None if:
+            - No valid session exists
+            - The access token is expired and refresh fails
+            - Any error occurs during API request
+            
+        Note:
+            This method will clear auth tokens if an error occurs.
+            Use get_session() to retrieve the JWT token claims instead of the full user profile.
+        """
+        if self.user_token_expired and not self.let_jwt_expire:
+            self.refresh_session()
+
+        response = httpx.get(
+            f"{self._api_url}/auth/v1/user",
+            headers={
+                "apikey": self._api_key,
+                "Authorization": f"Bearer {self.access_token}",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_user(
+        self,
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        password: Optional[str] = None,
+        user_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Update the current user's profile information.
+        
+        This method updates one or more user attributes including email,
+        phone number, password, or custom metadata.
+        
+        Args:
+            email: New email address for the user
+            phone: New phone number for the user
+            password: New password for the user
+            user_metadata: Dictionary of custom metadata to store with the user profile
+            
+        Returns:
+            Dictionary containing the updated user data
+            
+        Raises:
+            ValueError: If no access token exists (user not authenticated)
+            httpx.HTTPStatusError: If the API request fails
+        """
+        if self.user_token_expired and not self.let_jwt_expire:
+            self.refresh_session()
+        if not self.access_token:
+            raise ValueError("Expected access token to update user information.")
+
+        data = {}
+        url = f"{self._api_url}/auth/v1/user"
+        headers = {
+            "apikey": self._api_key,
+            "Authorization": f"Bearer {self.access_token}",
+        }
+
+        if email:
+            data["email"] = email
+        if phone:
+            data["phone"] = phone
+        if password:
+            data["password"] = password
+        if user_metadata:
+            data["data"] = user_metadata
+            
+        if not data:
+            raise ValueError("At least one attribute (email, phone, password, or user_metadata) must be provided to update.")
+
+        response = httpx.put(url, headers=headers, json=data)
+        response.raise_for_status()
+
+        return response.json()
+
+    def refresh_session(self) -> Dict[str, Any] | None:
+        """
+        Manually refresh the authentication session using the refresh token.
+        
+        This method uses the stored refresh token to obtain a new access token
+        when the current one expires. It automatically updates the token storage
+        if successful.
+        
+        Returns:
+            - Dictionary containing the user data if refresh successful.
+            - None if:
+                - No refresh token exists
+                - Refresh token is expired or invalid
+                - API request fails for any reason
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+            KeyError: If the expected keys are not present in the response
+        """
+        url = f"{self._api_url}/auth/v1/token?grant_type=refresh_token"
+        headers = {
+            "apikey": self._api_key,
+            "Authorization": f"Bearer {self.access_token}",
+        }
+        response = httpx.post(
+            url, 
+            headers=headers, 
+            json={"refresh_token": self.refresh_token}
+        )
+        response.raise_for_status()
+
+        data = response.json()
+
+        self.set_tokens(
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"],
+        )
+        return data["user"]
+
+    def get_settings(self) -> Dict[str, Any]:
+        """
+        Retrieve the authentication settings for the Supabase project.
+        
+        This method fetches the authentication configuration settings from
+        the Supabase API, including enabled providers and security settings.
+            
+        Returns:
+            Dictionary containing the authentication settings
+            
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+        """
+        url = f"{self._api_url}/auth/v1/settings"
+        headers = {
+            "apikey": self._api_key,
+        }
+        response = httpx.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+    def log_out(self) -> None:
+        """
+        Log out the current user and invalidate the refresh token on Supabase.
+        Clears cookies and the bearer token from the query object.
+            
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        # Only attempt server-side logout if we have an access token
+        if self.access_token:
+            url = f"{self._api_url}/auth/v1/logout"
+            headers = {
+                "apikey": self._api_key,
+                "Authorization": f"Bearer {self.access_token}",
+            }
+            response = httpx.post(url, headers=headers)
+
+            # Up to dev how to handle if server exception occurs, but locally user will be logged out.
+            response.raise_for_status()
+            self.reset()
+
+        else:
+            # Reset state
+            self.reset()
+
+    def exchange_code_for_session(
+        self,
+        auth_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Exchange an authorization code for a user session.
+        
+        This method is used in OAuth flows to convert the authorization code
+        received after a successful OAuth authentication into a user session
+        with access and refresh tokens.
+        
+        Args:
+            auth_data: Dictionary containing the authorization code with key 'auth_code'
+            
+        Returns:
+            Dict containing session data including access_token, refresh_token, and user object
+            
+        Raises:
+            ValueError: If auth_code is not provided in the auth_data
+            httpx.HTTPStatusError: If the API request fails (e.g., invalid code)
+            
+        Note:
+            This method automatically updates the stored access and refresh tokens
+            upon successful exchange. It should be called after the user is redirected
+            back from the OAuth provider.
+        """
+        if not auth_data or "auth_code" not in auth_data:
+            raise ValueError("Authorization code must be provided in auth_data dictionary with key 'auth_code'.")
+            
+        url = f"{self._api_url}/auth/v1/token?grant_type=authorization_code"
+        data = {"code": auth_data["auth_code"]}
+        headers = {
+            "apikey": self._api_key,
+        }
+        response = httpx.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        response_data = response.json()
+        self.set_tokens(
+            access_token=response_data["access_token"],
+            refresh_token=response_data["refresh_token"],
+        )
+
+        return response_data
+    
+    def session_manager(
+            self,
+            event: Callable,
+            on_failure: Optional[List[Callable]] | Optional[Callable] | None = None
+            ) -> Callable:
+        """
+        Use this for ensuring that access_token and refresh_token are refreshed prior
+        to executing an event. Optionally pass in an event to trigger if authentication
+        fails. This can be used to redirect user to login page, show an error message
+        etc.
+
+        Tokens are not refreshed if the user has set let_jwt_expire to True in the config.
+
+         - example:
+            on_click=BaseState.session_manager(
+                event=BaseState.get_a_value_from_db(),
+                on_failure=BaseState.redirect_to_login()
+            )
+
+        Args:
+            on_failure: Callback event - or list of events - to call on failed authentication
+
+        Returns:
+            event: The original event if authentication is successful, or not needed
+            on_failure: The provided callback function if authentication fails
+
+        Exceptions:
+            Passes exceptions through if refresh fails and on_failure not provided.
+        """
+        if self.let_jwt_expire:
+            # User doesn't want to refresh tokens automatically
+            if self.user_token_expired:
+                return on_failure
+            else:
+                return event
+        elif self.user_token_expired:
+            # User does want to refresh, and token is expired
+            try:
+                session = self.refresh_session()
+                if session:
+                    return event
+            except Exception as e:
+                if on_failure:
+                    return on_failure
+                else:
+                    # Pass exception through as no on_failure provided
+                    raise e
+        else:
+            # User does want to refresh, and token is not expired
+            return event
