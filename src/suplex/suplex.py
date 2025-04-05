@@ -765,9 +765,11 @@ class Suplex(rx.State):
                 - redirect_to: URL to redirect after authentication
                 - scopes: List of permission scopes to request
                 - query_params: Additional parameters to include in the OAuth request
+                - code_challenge: A random string used for PKCE to mitigate authorization code interception attacks.
+                - code_challenge_method: The method used to generate the code challenge. Must be either 'plain' or 's256'.
                 
         Returns:
-            A URL string to redirect the user to for OAuth authentication. When user 
+            A URL string to redirect the user to for OAuth authentication. When the user 
             successfully authenticates, they will be redirected back to the redirect_to URL.
             Parse the URL for the tokens and use set_tokens() to store them.
             
@@ -792,6 +794,10 @@ class Suplex(rx.State):
                 data["scopes"] = options.pop("scopes")
             if "query_params" in options:
                 data["query_params"] = options.pop("query_params")
+            if "code_challenge" in options:
+                data["code_challenge"] = options.pop("code_challenge")
+            if "code_challenge_method" in options:
+                data["code_challenge_method"] = options.pop("code_challenge_method")
 
         response = httpx.get(url, headers=headers, params=data)
 
