@@ -309,7 +309,7 @@ class Query(rx.Base):
                 raise ValueError("Must select columns to return or '*' to return all.")
             response = httpx.get(url, headers=headers, **kwargs)
         elif self._method == "post":
-            if not self._data:
+            if not self._data and "rpc" not in self._table:
                 raise ValueError("Missing data for request.")
             response = httpx.post(url, headers=headers, json=self._data, **kwargs)
         elif self._method == "put":
@@ -336,6 +336,10 @@ class Query(rx.Base):
         
         # Raise any HTTP errors
         response.raise_for_status()
+
+        # If the response is successful but empty
+        if not response.content:
+            return None
 
         # Return the response
         return response.json()
@@ -380,7 +384,7 @@ class Query(rx.Base):
                     raise ValueError("Must select columns to return or '*' to return all.")
                 response = await client.get(url, headers=headers, **kwargs)
             elif self._method == "post":
-                if not self._data:
+                if not self._data and "rpc" not in self._table:
                     raise ValueError("Missing data for request.")
                 response = await client.post(url, headers=headers, json=self._data, **kwargs)
             elif self._method == "put":
@@ -407,6 +411,10 @@ class Query(rx.Base):
             
             # Raise any HTTP errors
             response.raise_for_status()
+
+            # If the response is successful but empty
+            if not response.content:
+                return None
 
             # Return the response
             return response.json()
