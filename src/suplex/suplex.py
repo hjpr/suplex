@@ -1043,47 +1043,50 @@ class Suplex(rx.State):
 
     def exchange_code_for_session(
         self,
-        auth_data: Dict[str, Any],
+        params: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Exchange an authorization code for a user session.
+        Exchange an authorization code for an access token and refresh token using PKCE flow.
         
-        This method is used in OAuth flows to convert the authorization code
-        received after a successful OAuth authentication into a user session
-        with access and refresh tokens.
+        This method is used as part of the PKCE (Proof Key for Code Exchange) OAuth flow,
+        typically after redirecting back from an OAuth provider with an authorization code.
         
         Args:
-            auth_data: Dictionary containing the authorization code with key 'auth_code'
+            params: Dictionary containing:
+                - auth_code: The authorization code received from the OAuth provider
+                - code_verifier: The code verifier that was created and stored during the OAuth request
             
         Returns:
-            Dict containing session data including access_token, refresh_token, and user object
+            Dict containing user data, access_token, refresh_token, and other session info
             
         Raises:
-            ValueError: If auth_code is not provided in the auth_data
-            httpx.HTTPStatusError: If the API request fails (e.g., invalid code)
-            
-        Note:
-            This method automatically updates the stored access and refresh tokens
-            upon successful exchange. It should be called after the user is redirected
-            back from the OAuth provider.
+            ValueError: If auth_code or code_verifier is missing from params
+            httpx.HTTPStatusError: If the API request fails
         """
-        if not auth_data or "auth_code" not in auth_data:
-            raise ValueError("Authorization code must be provided in auth_data dictionary with key 'auth_code'.")
+        if "auth_code" not in params:
+            raise ValueError("Authorization code is required")
+        if "code_verifier" not in params:
+            raise ValueError("Code verifier is required")
             
-        url = f"{self._api_url}/auth/v1/token?grant_type=authorization_code"
-        data = {"code": auth_data["auth_code"]}
+        data = {
+            "auth_code": params["auth_code"],
+            "code_verifier": params["code_verifier"]
+        }
+            
+        url = f"{self._api_url}/auth/v1/token?grant_type=pkce"
         headers = {
             "apikey": self._api_key,
         }
+        
         response = httpx.post(url, headers=headers, json=data)
         response.raise_for_status()
         
         response_data = response.json()
         self.set_tokens(
-            access_token=response_data["access_token"],
+            access_token=response_data["access_token"], 
             refresh_token=response_data["refresh_token"],
         )
-
+        
         return response_data
     
     def session_manager(
