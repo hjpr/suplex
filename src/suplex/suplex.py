@@ -1022,29 +1022,57 @@ class Suplex(rx.State):
         response.raise_for_status()
         return response.json()
 
-    def log_out(self) -> None:
+    def log_out(
+        self, 
+        options: Optional[Dict[str, Any]] = None
+    ) -> None:
         """
         Log out the current user and invalidate the refresh token on Supabase.
         Clears cookies and the bearer token from the query object.
-            
+        
+        Args:
+            options: Additional options for logout:
+                - scope: How the user should be logged out:
+                    - "global": Log out from all active sessions across all devices
+                    - "local": Log out from the current session only (default)
+                    - "others": Log out from all other sessions except the current one
+        
         Raises:
             httpx.HTTPStatusError: If the API request fails.
+            
+        Note:
+           - Without a scope specified, the logout API uses the global scope.
+           - When scope is "others", local tokens are preserved. For "global" and "local"
+            (or when scope is not specified), local tokens are cleared.
         """
         # Only attempt server-side logout if we have an access token
         if self.access_token:
+            # Build URL with optional scope parameter
             url = f"{self._api_url}/auth/v1/logout"
+            
+            # Extract scope from options if provided
+            query_params = {}
+            if options and "scope" in options:
+                scope = options["scope"]
+                if scope in ["global", "local", "others"]:
+                    query_params["scope"] = scope
+            
             headers = {
                 "apikey": self._api_key,
                 "Authorization": f"Bearer {self.access_token}",
             }
-            response = httpx.post(url, headers=headers)
-
-            # Up to dev how to handle if server exception occurs, but locally user will be logged out.
+            
+            # Add query parameters to the request if any exist
+            response = httpx.post(url, headers=headers, params=query_params)
+            
+            # Up to dev how to handle if server exception occurs, but locally user will be logged out
             response.raise_for_status()
-            self.reset()
-
+            
+            # Only reset local tokens if we're not using "others" scope
+            if not (options and options.get("scope") == "others"):
+                self.reset()
         else:
-            # Reset state
+            # Reset state if no token exists
             self.reset()
 
     def exchange_code_for_session(
