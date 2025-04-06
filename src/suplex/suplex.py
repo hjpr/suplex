@@ -309,7 +309,7 @@ class Query(rx.Base):
                 raise ValueError("Must select columns to return or '*' to return all.")
             response = httpx.get(url, headers=headers, **kwargs)
         elif self._method == "post":
-            if not self._data:
+            if not self._data and "rpc" not in self._table:
                 raise ValueError("Missing data for request.")
             response = httpx.post(url, headers=headers, json=self._data, **kwargs)
         elif self._method == "put":
@@ -336,6 +336,10 @@ class Query(rx.Base):
         
         # Raise any HTTP errors
         response.raise_for_status()
+
+        # If the response is successful but empty
+        if not response.content:
+            return None
 
         # Return the response
         return response.json()
@@ -380,7 +384,7 @@ class Query(rx.Base):
                     raise ValueError("Must select columns to return or '*' to return all.")
                 response = await client.get(url, headers=headers, **kwargs)
             elif self._method == "post":
-                if not self._data:
+                if not self._data and "rpc" not in self._table:
                     raise ValueError("Missing data for request.")
                 response = await client.post(url, headers=headers, json=self._data, **kwargs)
             elif self._method == "put":
@@ -407,6 +411,10 @@ class Query(rx.Base):
             
             # Raise any HTTP errors
             response.raise_for_status()
+
+            # If the response is successful but empty
+            if not response.content:
+                return None
 
             # Return the response
             return response.json()
@@ -757,9 +765,11 @@ class Suplex(rx.State):
                 - redirect_to: URL to redirect after authentication
                 - scopes: List of permission scopes to request
                 - query_params: Additional parameters to include in the OAuth request
+                - code_challenge: A random string used for PKCE to mitigate authorization code interception attacks.
+                - code_challenge_method: The method used to generate the code challenge. Must be either 'plain' or 's256'.
                 
         Returns:
-            A URL string to redirect the user to for OAuth authentication. When user 
+            A URL string to redirect the user to for OAuth authentication. When the user 
             successfully authenticates, they will be redirected back to the redirect_to URL.
             Parse the URL for the tokens and use set_tokens() to store them.
             
@@ -784,6 +794,10 @@ class Suplex(rx.State):
                 data["scopes"] = options.pop("scopes")
             if "query_params" in options:
                 data["query_params"] = options.pop("query_params")
+            if "code_challenge" in options:
+                data["code_challenge"] = options.pop("code_challenge")
+            if "code_challenge_method" in options:
+                data["code_challenge_method"] = options.pop("code_challenge_method")
 
         response = httpx.get(url, headers=headers, params=data)
 
@@ -1008,74 +1022,105 @@ class Suplex(rx.State):
         response.raise_for_status()
         return response.json()
 
-    def log_out(self) -> None:
+    def log_out(
+        self, 
+        options: Optional[Dict[str, Any]] = None
+    ) -> None:
         """
         Log out the current user and invalidate the refresh token on Supabase.
         Clears cookies and the bearer token from the query object.
-            
+        
+        Args:
+            options: Additional options for logout:
+                - scope: How the user should be logged out:
+                    - "global": Log out from all active sessions across all devices
+                    - "local": Log out from the current session only (default)
+                    - "others": Log out from all other sessions except the current one
+        
         Raises:
             httpx.HTTPStatusError: If the API request fails.
+            
+        Note:
+           - Without a scope specified, the logout API uses the global scope.
+           - When scope is "others", local tokens are preserved. For "global" and "local"
+            (or when scope is not specified), local tokens are cleared.
         """
         # Only attempt server-side logout if we have an access token
         if self.access_token:
+            # Build URL with optional scope parameter
             url = f"{self._api_url}/auth/v1/logout"
+            
+            # Extract scope from options if provided
+            query_params = {}
+            if options and "scope" in options:
+                scope = options["scope"]
+                if scope in ["global", "local", "others"]:
+                    query_params["scope"] = scope
+            
             headers = {
                 "apikey": self._api_key,
                 "Authorization": f"Bearer {self.access_token}",
             }
-            response = httpx.post(url, headers=headers)
-
-            # Up to dev how to handle if server exception occurs, but locally user will be logged out.
+            
+            # Add query parameters to the request if any exist
+            response = httpx.post(url, headers=headers, params=query_params)
+            
+            # Up to dev how to handle if server exception occurs, but locally user will be logged out
             response.raise_for_status()
-            self.reset()
-
+            
+            # Only reset local tokens if we're not using "others" scope
+            if not (options and options.get("scope") == "others"):
+                self.reset()
         else:
-            # Reset state
+            # Reset state if no token exists
             self.reset()
 
     def exchange_code_for_session(
         self,
-        auth_data: Dict[str, Any],
+        params: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Exchange an authorization code for a user session.
+        Exchange an authorization code for an access token and refresh token using PKCE flow.
         
-        This method is used in OAuth flows to convert the authorization code
-        received after a successful OAuth authentication into a user session
-        with access and refresh tokens.
+        This method is used as part of the PKCE (Proof Key for Code Exchange) OAuth flow,
+        typically after redirecting back from an OAuth provider with an authorization code.
         
         Args:
-            auth_data: Dictionary containing the authorization code with key 'auth_code'
+            params: Dictionary containing:
+                - auth_code: The authorization code received from the OAuth provider
+                - code_verifier: The code verifier that was created and stored during the OAuth request
             
         Returns:
-            Dict containing session data including access_token, refresh_token, and user object
+            Dict containing user data, access_token, refresh_token, and other session info
             
         Raises:
-            ValueError: If auth_code is not provided in the auth_data
-            httpx.HTTPStatusError: If the API request fails (e.g., invalid code)
-            
-        Note:
-            This method automatically updates the stored access and refresh tokens
-            upon successful exchange. It should be called after the user is redirected
-            back from the OAuth provider.
+            ValueError: If auth_code or code_verifier is missing from params
+            httpx.HTTPStatusError: If the API request fails
         """
-        if not auth_data or "auth_code" not in auth_data:
-            raise ValueError("Authorization code must be provided in auth_data dictionary with key 'auth_code'.")
+        if "auth_code" not in params:
+            raise ValueError("Authorization code is required")
+        if "code_verifier" not in params:
+            raise ValueError("Code verifier is required")
             
-        url = f"{self._api_url}/auth/v1/token?grant_type=authorization_code"
-        data = {"code": auth_data["auth_code"]}
+        data = {
+            "auth_code": params["auth_code"],
+            "code_verifier": params["code_verifier"]
+        }
+            
+        url = f"{self._api_url}/auth/v1/token?grant_type=pkce"
         headers = {
             "apikey": self._api_key,
         }
+        
         response = httpx.post(url, headers=headers, json=data)
         response.raise_for_status()
         
         response_data = response.json()
         self.set_tokens(
-            access_token=response_data["access_token"],
+            access_token=response_data["access_token"], 
             refresh_token=response_data["refresh_token"],
         )
-
+        
         return response_data
     
     def session_manager(
