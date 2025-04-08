@@ -9,16 +9,6 @@ from urllib.parse import quote
 class Query(rx.Base):
     """
     Query class for building and executing queries against Supabase. This class provides methods for constructing SQL-like queries.
-
-    Init:
-        - bearer_token: The JWT access token for authentication. May use access_token for query as user or service_role as admin.
-
-    Returns:
-        - httpx.Response
-
-    Raises:
-        - ValueError: If required parameters are missing or invalid.
-        - httpx.HTTPStatusError: If the API request fails.
     """
 
     # Auth attributes
@@ -153,12 +143,12 @@ class Query(rx.Base):
         self._filters = f"{array_column}=cd.{{{formatted}}}"
         return self
 
-    def select(self, select: str) -> Self:
+    def select(self, column: str) -> Self:
         """
         Specify columns to return, or '*' to return all.
         https://supabase.com/docs/reference/python/select
         """
-        self._select = f"select={select}"
+        self._select = f"select={column}"
         self._method = "get"
         return self
 

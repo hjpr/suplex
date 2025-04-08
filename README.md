@@ -9,9 +9,9 @@ Simple state module to manage user auth and create database queries with the Ref
 Add Suplex to your project.
 
 ```bash
-uv add suplex # Preferred
+uv add suplex
 # or
-pip install suplex # Untested
+pip install suplex
 # or
 git clone https://github.com/hjpr/suplex.git # Requires manual setup and import
 ```
@@ -55,7 +55,7 @@ config = rx.Config(
 
 ## Subclassing
 
-Import Suplex, and subclass the module at the base layer.
+Import Suplex, and subclass the module at the lowest layer.
 
 ```python
 from suplex import Suplex
@@ -66,7 +66,7 @@ class BaseState(Suplex):
 
 ## Other Subclassing
 
-For any other classes within your Reflex project, subclass your BaseState to give them access to the auth information and query methods.
+For any other classes within your Reflex project, subclass your BaseState to give them access to the auth information and query methods. There shouldn't be any classes in your state requiring auth that don't inherit from the BaseState.
 
 ```python
 class OtherState(BaseState):
@@ -274,49 +274,84 @@ class BaseState(Suplex):
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select)
 
-- select()
+- select(select)
+  
+  - Specify column(s) to return or '*' to return all
 
-- insert()
+- insert(data)
+  
+  - Add new item to specified .table()
 
-- upsert()
+- upsert(data, return)
+  
+  - Add item to specified .table() if it doesn't exist, otherwise update item. One column must be primary key.
 
 - update()
+  
+  - Update rows - will match all rows by default. Use filters to update specific rows like eq(), lt(), or is()
 
 - delete()
+  
+  - Deletes rows - will match all rows by default. Use filters to specify.
 
 ### Query Filters (Incomplete)
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/using-filters)
 
-- eq()
+- eq(column, value)
+  
+  - Match only rows where column is equal to value.
 
-- neq()
+- neq(column, value)
+  
+  - Match only rows where column is not equal to value.
 
-- gt()
+- gt(column, value)
+  
+  - Match only rows where column is greater than value.
 
-- lt()
+- lt(column, value)
+  
+  - Match only rows where column is less than value.
 
-- gte()
+- gte(column, value)
+  
+  - Match only rows where column is greater than or equal to value.
 
-- lte()
+- lte(column, value)
+  
+  - Match only rows where column is less than or equal to value.
 
-- like()
+- like(column, pattern)
+  
+  - Match only rows where column matches pattern case-sensitively.
 
-- ilike()
+- ilike(column, pattern)
+  
+  - Match only rows where column matches pattern case-insensitively.
 
-- is_()
+- is_(column, value)
+  
+  - Match only rows where column is null or bool. Use instead of eq() for null values.
 
-- in_()
+- in_(column, values)
+  
+  - Match only rows where columsn is in the list of values.
 
-- contains()
+- contains(array_column, values)
+  
+  - Only relevant for jsonb, array, and range columns. Match only rows where column contains every element appearing in values.
 
-- contained_by()
+- contained_by(array_column, values)
+  
+  - Only relevant for jsonb, array, and range columns. Match only rows where every element appearing in column is contained by value.
 
 ### Query Modifiers (Incomplete)
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/using-modifiers)
 
-- order()
+- order(column, ascending)
+  - Order the query result by column. Defaults to ascending (lowest -> highest).
 
 ---
 
