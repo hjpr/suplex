@@ -713,13 +713,13 @@ class Suplex(rx.State):
         response = httpx.post(url, headers=headers, json=data)
         response.raise_for_status()
 
-        response_data = response.json()
+        data = response.json()
 
         self.set_tokens(
-            self.access_token,
-            self.refresh_token
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"]
         )
-        return response_data
+        return data
 
     def sign_in_with_oauth(
         self,
