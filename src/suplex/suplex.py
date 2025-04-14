@@ -160,8 +160,10 @@ class Query(rx.Base):
                     formatted_values.append(str(v).lower())
                 else:
                     formatted_values.append(str(v))
+            elif v is None:
+                formatted_values.append("NULL")
             else:
-                raise ValueError(f"Unsupported value {values} for filter 'in'. Needs to be str, int, float, or bool")
+                raise ValueError(f"Unsupported value {values} for filter 'in'. Needs to be str, int, float, bool, or None")
         value_string = ",".join(formatted_values)
         param = f"in.({value_string})"
         self._add_param(column, param)
@@ -215,7 +217,7 @@ class Query(rx.Base):
         self._add_param("select", column)
         return self
 
-    def insert(self, data: dict[str, Any] | list) -> Self:
+    def insert(self, data: dict[str, Any] | list, return_: Literal["representation", "minimal"] = "representation") -> Self:
         """
         Add new item to table as {'column': 'value', 'other_column': 'other_value'}
         or new items as [{'column': 'value'}, {'other_column': 'other_value'}]
@@ -223,6 +225,7 @@ class Query(rx.Base):
         """
         self._data = data
         self._method = "post"
+        self._headers["Prefer"] = f"return={return_}"
         return self
 
     def upsert(self, data: dict, return_: Literal["representation","minimal"]="representation") -> Self:
@@ -289,12 +292,14 @@ class Query(rx.Base):
         self._method = "post"
         return self
 
-    def limit(self, limit: int) -> Self:
+    def limit(self, count: int) -> Self:
         """
         Limit the number of rows returned.
         https://supabase.com/docs/reference/python/limit
         """
-        pass
+        if count <= 0:
+            raise ValueError("Limit must be a positive integer.")
+        self._headers["Range"] = f"0-{count - 1}" # Range header is inclusive.
         return self
 
     def range(self, start: int, end: int) -> Self:
@@ -302,7 +307,11 @@ class Query(rx.Base):
         Limit the query result by starting at an offset (start) and ending at the offset (end). 
         https://supabase.com/docs/reference/python/range
         """
-        pass
+        if start < 0 or end < 0:
+            raise ValueError("Range start and end must be non-negative.")
+        if start > end:
+            raise ValueError("Range start cannot be greater than end.")
+        self._headers["Range"] = f"{start}-{end}"
         return self
 
     def single(self) -> Self:
@@ -328,7 +337,8 @@ class Query(rx.Base):
         Return data as a string in CSV format.
         https://supabase.com/docs/reference/python/csv
         """
-        pass
+        self._headers["Accept"] = "text/csv"
+        self._accept_csv = True
         return self
 
     def explain(self) -> Self:
@@ -362,43 +372,50 @@ class Query(rx.Base):
             "Authorization": f"Bearer {self.bearer_token}",
         }
 
-        # Finally make the built request.
-        if self._method == "get":
-            if not self._params.get("select"):
-                raise ValueError("Must select columns to return or '*' to return all.")
-            response = httpx.get(url, headers=headers, params=self._params, **kwargs)
-        elif self._method == "post":
-            if not self._data and "rpc" not in self._table:
-                raise ValueError("Missing data for request.")
-            response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "put":
-            if not self._data:
-                raise ValueError("Missing data for request.")
-            response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "patch":
-            if not self._data:
-                raise ValueError("Missing data for request.")
-            response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "delete":
-            response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
-        else:
-            raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
-        
-        # Clean up
-        self._table = None
-        self._method = None
-        self._data = None
-        self._headers = {}
-        
-        # Raise any HTTP errors
-        response.raise_for_status()
+        try:
+            if self._method == "get":
+                if not self._params.get("select"):
+                    raise ValueError("Must select columns to return or '*' to return all.")
+                response = httpx.get(url, headers=headers, params=self._params, **kwargs)
+            elif self._method == "post":
+                if not self._data and "rpc" not in self._table:
+                    raise ValueError("Missing data for request.")
+                response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "put":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "patch":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "delete":
+                response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
+            else:
+                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+            
+            # Raise any HTTP errors
+            response.raise_for_status()
 
-        # If the response is successful but empty
-        if not response.content:
-            return None
+            if self._accept_csv:
+                return response.text # Raw CSV string
+            elif not response.content or response.status_code == 204:
+                return None
 
-        # Return the response
-        return response.json()
+            # Return the response
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                return response.text
+
+        finally:
+            # Clean up regardless of success/failure
+            self._table = None
+            self._method = "get"
+            self._data = None
+            self._params = {}
+            self._headers = {}
+            self._accept_csv = False
 
     async def async_execute(self, **kwargs) -> List[Dict[str, Any]]:
         """
@@ -421,44 +438,51 @@ class Query(rx.Base):
             "apikey": self._api_key,
             "Authorization": f"Bearer {self.bearer_token}",
         }
-
-        async with httpx.AsyncClient() as client:
-            if self._method == "get":
-                if not self._params.get("select"):
-                    raise ValueError("Must select columns to return or '*' to return all.")
-                response = await client.get(url, headers=headers, params=self._params, **kwargs)
-            elif self._method == "post":
-                if not self._data and "rpc" not in self._table:
-                    raise ValueError("Missing data for request.")
-                response = await client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "put":
-                if not self._data:
-                    raise ValueError("Missing data for request.")
-                response = await client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "patch":
-                if not self._data:
-                    raise ValueError("Missing data for request.")
-                response = await client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "delete":
-                response = await client.delete(url, headers=headers, params=self._params, **kwargs)
-            else:
-                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
-            
-            # Clean up
-            self._table = None
-            self._method = None
-            self._data = None
-            self._headers = {}
-            
+        try:
+            async with httpx.AsyncClient() as client:
+                if self._method == "get":
+                    if not self._params.get("select"):
+                        raise ValueError("Must select columns to return or '*' to return all.")
+                    response = await client.get(url, headers=headers, params=self._params, **kwargs)
+                elif self._method == "post":
+                    if not self._data and "rpc" not in self._table:
+                        raise ValueError("Missing data for request.")
+                    response = await client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
+                elif self._method == "put":
+                    if not self._data:
+                        raise ValueError("Missing data for request.")
+                    response = await client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
+                elif self._method == "patch":
+                    if not self._data:
+                        raise ValueError("Missing data for request.")
+                    response = await client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
+                elif self._method == "delete":
+                    response = await client.delete(url, headers=headers, params=self._params, **kwargs)
+                else:
+                    raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+        
             # Raise any HTTP errors
             response.raise_for_status()
 
-            # If the response is successful but empty
-            if not response.content:
+            if self._accept_csv:
+                return response.text # Raw CSV string
+            elif not response.content or response.status_code == 204:
                 return None
 
             # Return the response
-            return response.json()
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                return response.text
+
+        finally:
+            # Clean up regardless of success/failure
+            self._table = None
+            self._method = "get"
+            self._data = None
+            self._params = {}
+            self._headers = {}
+            self._accept_csv = False
 
     def _format_array_literal(self, values: List[Any]) -> str:
         if not values:
@@ -549,7 +573,7 @@ class Suplex(rx.State):
     # Query class
     query: Query = Query()
 
-    # Loading
+    # Set for events requiring front-end tracking of loading state.
     is_loading = False
 
     def __init__(self, *args, **kwargs):
