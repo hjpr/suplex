@@ -1,10 +1,10 @@
 import httpx
+import json
 import jwt
 import reflex as rx
 import time
 
 from typing import Any, Callable, Dict, List, Literal, Optional, Self
-from urllib.parse import quote
 
 class Query(rx.Base):
     """
@@ -19,9 +19,7 @@ class Query(rx.Base):
 
     # Query building attributes
     _table: str | None = None
-    _filters: str | None = None
-    _select: str | None = None
-    _order: str | None = None
+    _params: Dict[str, Any] = {}
     _method: str | None = None
     _data: dict[str, Any] | list | None = None
 
@@ -36,6 +34,12 @@ class Query(rx.Base):
         self._api_url = config.suplex["api_url"] # type: ignore
         self._api_key = config.suplex["api_key"] # type: ignore
 
+        # Set default method as get. Can be modified using other methods.
+        self._method = "get"
+
+    def _add_param(self, key: str, value: Any) -> None:
+        self._params[key] = value
+
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
         self._table = f"{table}"
@@ -44,17 +48,19 @@ class Query(rx.Base):
     def eq(self, column: str, value: Any) -> Self:
         """
         Match only rows where column is equal to value.
+        Use .is_ for null or bool.
         https://supabase.com/docs/reference/python/eq
         """
-        self._filters = f"{column}=eq.{value}"
+        self._add_param(column, f"eq.{value}")
         return self
 
     def neq(self, column: str, value: Any) -> Self:
         """
         Match only rows where column is not equal to value.
+        Use .is_not for null or bool.
         https://supabase.com/docs/reference/python/neq
         """
-        self._filters = f"{column}=neq.{value}"
+        self._add_param(column, f"neq.{value}")
         return self
 
     def gt(self, column: str, value: Any) -> Self:
@@ -62,7 +68,7 @@ class Query(rx.Base):
         Match only rows where column is greater than value.
         https://supabase.com/docs/reference/python/gt
         """
-        self._filters = f"{column}=gt.{value}"
+        self._add_param(column, f"gt.{value}")
         return self
 
     def lt(self, column: str, value: Any) -> Self:
@@ -70,7 +76,7 @@ class Query(rx.Base):
         Match only rows where column is less than value.
         https://supabase.com/docs/reference/python/lt
         """
-        self._filters = f"{column}=lt.{value}"
+        self._add_param(column, f"lt.{value}")
         return self
 
     def gte(self, column: str, value: Any) -> Self:
@@ -78,7 +84,7 @@ class Query(rx.Base):
         Match only rows where column is greater than or equal to value.
         https://supabase.com/docs/reference/python/gte
         """
-        self._filters = f"{column}=gte.{value}"
+        self._add_param(column, f"gte.{value}")
         return self
 
     def lte(self, column: str, value: Any) -> Self:
@@ -86,7 +92,7 @@ class Query(rx.Base):
         Match only rows where column is less than or equal to value.
         https://supabase.com/docs/reference/python/lte
         """
-        self._filters = f"{column}=lte.{value}"
+        self._add_param(column, f"lte.{value}")
         return self
 
     def like(self, column: str, pattern: str) -> Self:
@@ -94,7 +100,7 @@ class Query(rx.Base):
         Match only rows where column matches pattern case-sensitively.
         https://supabase.com/docs/reference/python/like
         """
-        self._filters = f"{column}=like.{pattern}"
+        self._add_param(column, f"like.{pattern}")
         return self
 
     def ilike(self, column: str, pattern: str) -> Self:
@@ -102,45 +108,103 @@ class Query(rx.Base):
         Match only rows where column matches pattern case-insensitively.
         https://supabase.com/docs/reference/python/ilike
         """
-        self._filters = f"{column}=ilike.{pattern}"
+        self._add_param(column, f"ilike.{pattern}")
         return self
 
-    def is_(self, column: str, value: Literal["null"] | bool) -> Self:
+    def is_(self, column: str, value: Literal["null"] | bool | None) -> Self:
         """
-        Match only rows where column is null or bool.
+        Match only rows where column is null/bool. May use None, and True/False
+        rather than the string value equivalents.
         Use this instead of eq() for null values.
         https://supabase.com/docs/reference/python/is
         """
-        self._filters = f"{column}=is.{value}"
+        param = ""
+        if value is None or value == "null":
+            param = "null"
+        elif isinstance(value, bool):
+            param = str(value).lower()
+        else:
+            raise ValueError(f"Unsupported value {value} for 'is' filter. Use None, True, False, or 'null'.")
+        self._add_param(column, f"is.{param}")
         return self
 
-    def in_(self, column: str, values: list) -> Self:
+    def is_not(self, column: str, value: Literal["null"] | bool | None) -> Self:
+        """
+        Match only rows where column is NOT null/bool. May use None, and True/False
+        rather than the string value equivalents.
+        Use this instead of neq() for null values.
+        https://supabase.com/docs/reference/python/is
+        """
+        param = ""
+        if value is None or value == "null":
+            param = "null"
+        elif isinstance(value, bool):
+            param = str(value).lower()
+        else:
+            raise ValueError(f"Unsupported value {value} for 'is_not' filter. Use None, True, False, or 'null'.")
+        self._add_param(column, f"is.not.{param}")
+        return self        
+
+    def in_(self, column: str, values: List[Any]) -> Self:
         """
         Match only rows where column is in the list of values.
         https://supabase.com/docs/reference/python/in
         """
-        formatted = ",".join(quote(f'"{v}"') for v in values)
-        self._filters = f"{column}=in.({formatted})"
+        formatted_values = []
+        for v in values:
+            if isinstance(v, str):
+                escaped_v = v.replace('"', '""')
+                formatted_values.append(f'"{escaped_v}"')
+            elif isinstance(v, (int, float, bool)):
+                if isinstance(v, bool):
+                    formatted_values.append(str(v).lower())
+                else:
+                    formatted_values.append(str(v))
+            else:
+                raise ValueError(f"Unsupported value {values} for filter 'in'. Needs to be str, int, float, or bool")
+        value_string = ",".join(formatted_values)
+        param = f"in.({value_string})"
+        self._add_param(column, param)
         return self
 
-    def contains(self, array_column: str, values: list) -> Self:
+    def contains(self, array_column: str, value: List[Any] | Dict[str, Any] | str) -> Self:
         """
         Only relevant for jsonb, array, and range columns.
         Match only rows where column contains every element appearing in values.
         https://supabase.com/docs/reference/python/contains
         """
-        formatted = ",".join(quote(f'"{v}"') for v in values)
-        self._filters = f"{array_column}=cs.{{{formatted}}}"
+        param: str
+        if isinstance(value, list):
+            formatted_list = self._format_array_literal(value)
+            param = f"cs.{formatted_list}"
+        elif isinstance(value, dict):
+            json_string = json.dumps(value)
+            param = f"cs.{json_string}"
+        elif isinstance(value, (str, int, float)):
+            param = f"cs.{value}"
+        else:
+            raise TypeError(f"Unsupported type '{type(value)}' for 'contains' value. Expected list, dict, str, int, or float.")
+        self._add_param(array_column, param)
         return self
 
-    def contained_by(self, array_column: str, values: list) -> Self:
+    def contained_by(self, array_column: str, value: list) -> Self:
         """
         Only relevant for jsonb, array, and range columns.
         Match only rows where every element appearing in column is contained by value.
         https://supabase.com/docs/reference/python/containedby
         """
-        formatted = ",".join(quote(f'"{v}"') for v in values)
-        self._filters = f"{array_column}=cd.{{{formatted}}}"
+        param: str
+        if isinstance(value, list):
+            formatted_list = self._format_array_literal(value)
+            param = f"cd.{formatted_list}"
+        elif isinstance(value, dict):
+            json_string = json.dumps(value)
+            param = f"cd.{json_string}"
+        elif isinstance(value, (str, int, float)):
+            param = f"cd.{value}"
+        else:
+            raise TypeError(f"Unsupported type '{type(value)}' for 'contains' value. Expected list, dict, str, int, or float.")
+        self._add_param(array_column, param)
         return self
 
     def select(self, column: str) -> Self:
@@ -148,8 +212,7 @@ class Query(rx.Base):
         Specify columns to return, or '*' to return all.
         https://supabase.com/docs/reference/python/select
         """
-        self._select = f"select={column}"
-        self._method = "get"
+        self._add_param("select", column)
         return self
 
     def insert(self, data: dict[str, Any] | list) -> Self:
@@ -192,12 +255,28 @@ class Query(rx.Base):
         self._method = "delete"
         return self
 
-    def order(self, column: str, ascending: bool = True) -> Self:
+    def order(self, column: str, ascending: bool = True, nulls_first: Optional[bool] = None) -> Self:
         """
         Order the query result by column. Defaults to ascending order (lowest to highest).
+        Use nulls_first to place nulls at top or bottom of order.
         https://supabase.com/docs/reference/python/order
         """
-        self._order = f"order={column}.{('asc' if ascending else 'desc')}"
+        direction = 'asc' if ascending else 'desc'
+        criterion = f"{column}.{direction}"
+
+        # Don't append if nulls_first is None
+        if nulls_first is True:
+            criterion += ".nullsfirst"
+        elif nulls_first is False:
+            criterion += ".nullslast"
+
+        current_order_value = self._params.get("order", "")
+        if current_order_value:
+            updated_order_value = f"{current_order_value},{criterion}"
+        else:
+            updated_order_value = criterion
+
+        self._add_param("order", updated_order_value)
         return self
     
     def rpc(self, function: str, params: Optional[Dict[Any, Any]] = None) -> Self:
@@ -272,19 +351,9 @@ class Query(rx.Base):
             raise ValueError("Request requires a bearer token. User needs to be signed in first, or service_role provided for admin use.")
         if not self._table:
             raise ValueError("No table name was provided for request.")
-        if not self._method:
-            raise ValueError("No method was provided for request.")
 
         # Set base URL and parameters
-        base_url = f"{self._api_url}/rest/v1/{self._table}"
-        params = []
-        if self._filters:
-            params.append(self._filters)
-        if self._select:
-            params.append(self._select)
-        if self._order:
-            params.append(self._order)
-        url = f"{base_url}?{'&'.join(params)}"
+        url = f"{self._api_url}/rest/v1/{self._table}"
 
         # Set headers
         headers = {
@@ -295,31 +364,28 @@ class Query(rx.Base):
 
         # Finally make the built request.
         if self._method == "get":
-            if not self._select:
+            if not self._params.get("select"):
                 raise ValueError("Must select columns to return or '*' to return all.")
-            response = httpx.get(url, headers=headers, **kwargs)
+            response = httpx.get(url, headers=headers, params=self._params, **kwargs)
         elif self._method == "post":
             if not self._data and "rpc" not in self._table:
                 raise ValueError("Missing data for request.")
-            response = httpx.post(url, headers=headers, json=self._data, **kwargs)
+            response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
         elif self._method == "put":
             if not self._data:
                 raise ValueError("Missing data for request.")
-            response = httpx.put(url, headers=headers, json=self._data, **kwargs)
+            response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
         elif self._method == "patch":
             if not self._data:
                 raise ValueError("Missing data for request.")
-            response = httpx.patch(url, headers=headers, json=self._data, **kwargs)
+            response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
         elif self._method == "delete":
-            response = httpx.delete(url, headers=headers, **kwargs)
+            response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
         else:
             raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
         
         # Clean up
         self._table = None
-        self._filters = None
-        self._select = None
-        self._order = None
         self._method = None
         self._data = None
         self._headers = {}
@@ -345,19 +411,9 @@ class Query(rx.Base):
             raise ValueError("Request requires a bearer token.")
         if not self._table:
             raise ValueError("No table name was provided for request.")
-        if not self._method:
-            raise ValueError("No method was provided for request.")
 
         # Set base URL and parameters
-        base_url = f"{self._api_url}/rest/v1/{self._table}"
-        params = []
-        if self._filters:
-            params.append(self._filters)
-        if self._select:
-            params.append(self._select)
-        if self._order:
-            params.append(self._order)
-        url = f"{base_url}?{'&'.join(params)}"
+        url = f"{self._api_url}/rest/v1/{self._table}"
 
         # Set headers
         headers = {
@@ -368,33 +424,28 @@ class Query(rx.Base):
 
         async with httpx.AsyncClient() as client:
             if self._method == "get":
-                if not self._table:
-                    raise ValueError("No table name was provided for request.")
-                if not self._select:
+                if not self._params.get("select"):
                     raise ValueError("Must select columns to return or '*' to return all.")
-                response = await client.get(url, headers=headers, **kwargs)
+                response = await client.get(url, headers=headers, params=self._params, **kwargs)
             elif self._method == "post":
                 if not self._data and "rpc" not in self._table:
                     raise ValueError("Missing data for request.")
-                response = await client.post(url, headers=headers, json=self._data, **kwargs)
+                response = await client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
             elif self._method == "put":
                 if not self._data:
                     raise ValueError("Missing data for request.")
-                response = await client.put(url, headers=headers, json=self._data, **kwargs)
+                response = await client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
             elif self._method == "patch":
                 if not self._data:
                     raise ValueError("Missing data for request.")
-                response = await client.patch(url, headers=headers, json=self._data, **kwargs)
+                response = await client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
             elif self._method == "delete":
-                response = await client.delete(url, headers=headers, **kwargs)
+                response = await client.delete(url, headers=headers, params=self._params, **kwargs)
             else:
                 raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
             
             # Clean up
             self._table = None
-            self._filters = None
-            self._select = None
-            self._order = None
             self._method = None
             self._data = None
             self._headers = {}
@@ -408,6 +459,30 @@ class Query(rx.Base):
 
             # Return the response
             return response.json()
+
+    def _format_array_literal(self, values: List[Any]) -> str:
+        if not values:
+            return "{}"
+
+        formatted_elements = []
+        for v in values:
+            if v is None:
+                formatted_elements.append("NULL")
+            elif isinstance(v, str):
+                if not v or any(c in v for c in ',{} \\"') or v.strip() != v:
+                    # Escape backslashes and double quotes
+                    escaped_v = v.replace('\\', '\\\\').replace('"', '\\"')
+                    formatted_elements.append(f'"{escaped_v}"') # Formatted for safety
+                else:
+                    formatted_elements.append(v) # Elements are safe.
+            elif isinstance(v, bool):
+                formatted_elements.append(str(v).lower()) # e.g. True -> 'true'
+            elif isinstance(v, (int, float)):
+                formatted_elements.append(str(v))
+            else:
+                raise ValueError(f"Unsupported value in {values} to format an array literal string. List must contain str, bool, int, or float.")
+
+        return "{" + ",".join(formatted_elements) + "}"
 
 
 class Suplex(rx.State):
