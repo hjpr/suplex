@@ -22,6 +22,7 @@ class Query(rx.Base):
     _params: Dict[str, Any] = {}
     _method: str | None = None
     _data: dict[str, Any] | list | None = None
+    _accept_csv: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
