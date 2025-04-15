@@ -9,14 +9,25 @@ Simple state module to manage user auth and create database queries with the Ref
 Add Suplex to your project.
 
 ```bash
+# Install uv with curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install uv with wget
+wget -qO- https://astral.sh/uv/install.sh | sh
+
+# Activate your venv in your base folder
+cd /path/to/project
+uv venv # or uv venv my-project-venv
+source .venv/bin/activate # or source /my-project-venv/bin/activate
+
+# Add suplex as dependency
 uv add suplex
-# or
-pip install suplex
-# or
-git clone https://github.com/hjpr/suplex.git # Requires manual setup and import
+
 ```
 
-## Environment Variables
+---
+
+## Configure
 
 In your project top-level directory, where rxconfig.py is located create a .env file as follows...
 
@@ -50,12 +61,14 @@ config = rx.Config(
         "let_jwt_expire": False # (Optional: Default is False) Specify if tokens auto refresh. Can set to True for tighter/manual control of token refresh
         "cookie_max_age": 3600 # (Optional: Default = None) Seconds until cookie expires, otherwise is a session cookie.
     } 
-)
+) 
 ```
 
-## Subclassing
+---
 
-Import Suplex, and subclass the module at the lowest layer.
+## Build into existing State Class
+
+Import Suplex, and subclass the module at the lowest layer. A BaseState class that is already built, or fresh will work. For a BaseState that is already built, make sure that you check the suplex functions and vars to ensure there aren't any collisions.
 
 ```python
 from suplex import Suplex
@@ -63,6 +76,8 @@ from suplex import Suplex
 class BaseState(Suplex):
     # Your class below...
 ```
+
+---
 
 ## Other Subclassing
 
@@ -79,41 +94,59 @@ class OtherState(BaseState):
 
 Suplex comes with built-in vars and functions to manage users, user objects, JWT claims and more. Because front-end handling is different from project to project, you'll need to create functions for how you'd like to update your UI, redirect on success/failure, and handle exceptions.
 
-After logging user in, the access and refresh tokens are stored within your BaseState as
-
-```python
-self.access_token
-# and
-self.refresh_token
-```
-
-You won't need to do anything with those tokens directly, as there are a ton of helper vars and functions to extract relevant details, get user objects, and refresh sessions.
-
 ### Auth Functions
 
-- sign_up()
+- sign_up(email: str, phone: str, password: str, options: Dict[str, Any])
+  
+  - Sign a user up using email or phone, and password. May pass in options - email_redirect_to, data, captcha_token, and channel.
 
-- sign_in_with_password()
+- sign_in_with_password(email: str, phone: str, password: str, options: Dict[str, Any])
+  
+  - Sign a user in with email or phone, and password. May pass in options - captcha_token.
+  
+  - Returns user object dict and other info.
 
-- sign_in_with_oauth()
+- sign_in_with_oauth(provider: str, options: Dict[str, Any])
+  
+  - Returns a url to use with rx.redirect to send user to OAuth endpoint. May pass in options redirect_to, scopes, query_params, code_challenge, and code_challenge_method. Will need to manually parse the url that OAuth redirects to for storing the tokens. Use set_tokens() to set access_token and refresh_token.
 
-- exchange_code_for_session()
+- exchange_code_for_session(params: Dict[str, Any])
+  
+  - Provide params auth_code, code_verifier for an access_token and refresh_token when using PKCE flow. Sets tokens automatically. Returns the user object and other information.
 
-- set_tokens()
+- set_tokens(access_token: str, refresh_token: str)
+  
+  - Sets both tokens as well as setting the bearer token of the query object using the access_token. Use this if manually parsing a URL to set tokens.
 
-- reset_password_email()
+- reset_password_email(email: str)
+  
+  - Send password reset email to specified email address.
 
 - get_user()
+  
+  - Returns the user object of the current authenticated user from Supabase.
 
-- update_user()
+- update_user(email: str, phone: str, password: str, user_metadata: Dict[str, Any])
+  
+  - Updates the current users email, phone, password, or custom data stored in user_metadata.
+  
+  - Returns the updated user object.
 
 - refresh_session()
+  
+  - Manually refreshes the authentication session using the stored refresh token.
 
 - get_settings()
+  
+  - Returns the authentication settings for the Supabase project.
 
 - log_out()
+  
+  - Clears local tokens and attempts to nullify the refresh_token to Supabase.
 
-- session_manager()
+- session_manager(event: Callable, on_failure: List[Callable] | Callable | None)
+  
+  - Pass an event. If users token has expired, will attempt to refresh the token. If the token is unable to be refreshed, will trigger the on_failure event. Used typically to redirect to login page on failure.
 
 Check docstrings for params, returns and exceptions.
 
@@ -156,34 +189,64 @@ class BaseState(Suplex):
 There is a full set of vars that pull values from the signed JWT that gets provided from Supabase in the form of an access_token. These vars pull those claims. If you don't want to use local information and instead only want to rely on a user object pulled directly from Supabase then you will want to use the get_user() function and parse the user object directly.
 
 - user_id
+  
+  - str - user's id as uuid.
 
 - user_email
+  
+  - str - user's email.
 
 - user_phone
+  
+  - str = user's phone.
 
 - user_audience
+  
+  - str - audience that user is a part of. Currently only supports audience "authenticated" as the JWT checks for this audience for validation.
 
 - user_role
+  
+  - str - role assigned to user.
 
 - claims_issuer
+  
+  - str - url that issued claim.
 
 - claims_expire_at
+  
+  - int - unix timestamp for when token expires.
 
 - claims_issued_at
+  
+  - int - unix timestamp for when token was issued.
 
 - claims_session_id
+  
+  - str - unique session id from Supabase.
 
 - user_metadata
+  
+  - Dict[str, Any] - custom data within user object.
 
 - app_metadata
+  
+  - Dict[str, Any] - extra info stored by Supabase.
 
 - user_aal
+  
+  - Literal["aal1" | "aal2"] - specifies 1 or 2 factor auth was used.
 
 - user_is_authenticated
+  
+  - bool - if user audience is "authenticated" will be True.
 
 - user_is_anonymous
+  
+  - bool - if user is anonymous will be True.
 
 - user_token_expired
+  
+  - bool - checks expiry for claims.
 
 ```python
 # Frontend
@@ -191,8 +254,8 @@ def auth_component() -> rx.Component:
     # Show only if user is logged in.
     return rx.cond(
         BaseState.user_is_authenticated,
-        rx.shown_if_authencated(),
-        rx.shown_if_not_authenticated()
+        shown_if_authenticated(),
+        shown_if_not_authenticated()
 )
 
 def user_info_panel() -> rx.Component:
@@ -274,75 +337,79 @@ class BaseState(Suplex):
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select)
 
-- select(select)
+- select(column: str)
   
-  - Specify column(s) to return or '*' to return all
+  - Specify column(s) to return or '*' to return all.
 
-- insert(data)
+- insert(data: dict[str, Any] | list, return_: Literal["representation", "minimal"])
   
-  - Add new item to specified .table()
+  - Add new data to specified .table(). Can specify if the inserted row is returned by setting return_ to "representation".
 
-- upsert(data, return)
+- upsert(data: dict, return_: Literal["representation","minimal"])
   
   - Add item to specified .table() if it doesn't exist, otherwise update item. One column must be primary key.
 
-- update()
+- update(data: Dict[str, Any], return_: Literal["representation","minimal"])
   
-  - Update rows - will match all rows by default. Use filters to update specific rows like eq(), lt(), or is()
+  - Update rows with specified data - will match all rows by default. Use filters to update specific rows like eq(), lt(), or is().
 
 - delete()
   
-  - Deletes rows - will match all rows by default. Use filters to specify.
+  - Deletes rows - will match all rows by default. Use filters to specify how to select the rows to delete.
 
 ### Query Filters (Incomplete)
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/using-filters)
 
-- eq(column, value)
+- eq(column: str, value: Any)
   
   - Match only rows where column is equal to value.
 
-- neq(column, value)
+- neq(column: str, value: Any)
   
   - Match only rows where column is not equal to value.
 
-- gt(column, value)
+- gt(column: str, value: Any)
   
   - Match only rows where column is greater than value.
 
-- lt(column, value)
+- lt(column: str, value: Any)
   
   - Match only rows where column is less than value.
 
-- gte(column, value)
+- gte(column: str, value: Any)
   
   - Match only rows where column is greater than or equal to value.
 
-- lte(column, value)
+- lte(column: str, value: Any)
   
   - Match only rows where column is less than or equal to value.
 
-- like(column, pattern)
+- like(column: str, pattern: str)
   
   - Match only rows where column matches pattern case-sensitively.
 
-- ilike(column, pattern)
+- ilike(column: str, pattern: str)
   
   - Match only rows where column matches pattern case-insensitively.
 
-- is_(column, value)
+- is_(column: str, value: Literal["null"] | bool | None)
   
   - Match only rows where column is null or bool. Use instead of eq() for null values.
 
-- in_(column, values)
+- is_not(column: str, value: Literal["null"] | bool | None)
+  
+  - Match only rows where column is NOT null/bool. Use instead of neq() for null values.
+
+- in_(column: str, values: List[Any])
   
   - Match only rows where columsn is in the list of values.
 
-- contains(array_column, values)
+- contains(array_column, value: List[Any] | Dict[str, Any] | str)
   
   - Only relevant for jsonb, array, and range columns. Match only rows where column contains every element appearing in values.
 
-- contained_by(array_column, values)
+- contained_by(array_column: str, value: List[Any] | Dict[str, Any] | str)
   
   - Only relevant for jsonb, array, and range columns. Match only rows where every element appearing in column is contained by value.
 
@@ -350,8 +417,24 @@ class BaseState(Suplex):
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/using-modifiers)
 
-- order(column, ascending)
-  - Order the query result by column. Defaults to ascending (lowest -> highest).
+- order(column: str, ascending: bool = True, nulls_first: Optional[bool] = None)
+  - Order the query result by column. Defaults to ascending (lowest -> highest). Use nulls_first to place nulls at top or bottom of order.
+- limit(count: int)
+  - Limit the number of rows returned by count.
+- range(start: int, end: int)
+  - Limit the result starting at start offset and ending at end offset.
+- csv()
+  - Return data as a string in CSV format.
+- single()
+  - Not implemented yet.
+- maybe_single()
+  - Not implemented yet.
+
+## Other Functions
+
+- rpc(function: str, params: Dict[Any, Any])
+  
+  - Calls a postgres function deployed in Supabase.
 
 ---
 
@@ -362,5 +445,3 @@ Generally this module is attempting to do the dirty work of setting up a request
 If there is a feature you'd like added that keeps the spirit of flexibility but adds functionality then please let me know and I'll be happy to extend this module.
 
 Documentation and structure of this project is **very early** so expect changes as I integrate this project and test all the features thoroughly.
-
-## Thanks!

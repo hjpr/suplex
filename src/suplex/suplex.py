@@ -190,7 +190,7 @@ class Query(rx.Base):
         self._add_param(array_column, param)
         return self
 
-    def contained_by(self, array_column: str, value: list) -> Self:
+    def contained_by(self, array_column: str, value: List[Any] | Dict[str, Any] | str) -> Self:
         """
         Only relevant for jsonb, array, and range columns.
         Match only rows where every element appearing in column is contained by value.
@@ -240,15 +240,15 @@ class Query(rx.Base):
         self._headers["Prefer"] = f"return={return_},resolution=merge-duplicates"
         return self
 
-    def update(self, data: dict) -> Self:
+    def update(self, data: Dict[str, Any], return_: Literal["representation","minimal"]="representation") -> Self:
         """
         Update lets you update rows. update will match all rows by default.
         You can update specific rows using horizontal filters, e.g. eq, lt, and is.
         https://supabase.com/docs/reference/python/update
         """
-        self._headers["Prefer"] = "return=representation"
-        self._method = "patch"
         self._data = data
+        self._method = "patch"
+        self._headers["Prefer"] = f"return={return_}"
         return self
 
     def delete(self) -> Self:
@@ -913,7 +913,7 @@ class Suplex(rx.State):
     def reset_password_email(
         self,
         email: str,
-        options: Optional[Dict[str, Any]] = None,
+        # options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Send a password reset email to the specified email address.
@@ -945,7 +945,6 @@ class Suplex(rx.State):
         """
         if not email:
             raise ValueError("Email must be provided.")
-            
         data = {"email": email}
         url = f"{self._api_url}/auth/v1/recover"
         headers = {
