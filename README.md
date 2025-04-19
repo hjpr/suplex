@@ -22,7 +22,6 @@ source .venv/bin/activate # or source /my-project-venv/bin/activate
 
 # Add suplex as dependency
 uv add suplex
-
 ```
 
 ---
@@ -305,7 +304,9 @@ def database_component() -> rx.Component:
 
 ## Query
 
-Once a user is signed in, calling the query class that is already instantiated inside of your BaseClass is how you build a query using the logged in user's credentials. The style of query is almost identical to the official Supabase python client located at - [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select). The only difference in Suplex syntax is the addition of the .query object at the start of the chain.
+Once a user is signed in, building the query class inside of your BaseClass is how you build a query using the logged in user's credentials. The style of query is similar to the official Supabase python client located at - [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select).
+
+By creating a new instance of the query for each request, this avoids concurrency issues with Reflex's asyncronous events system.
 
 ```python
 from suplex import Suplex
@@ -316,7 +317,8 @@ class BaseState(Suplex):
         # Get all unique ingredients from a collection of recipes.
         try:
             ingredients = []
-            results = self.query.table("recipes").select("ingredients").execute()
+            query = self.query.table("recipes").select("ingredients")
+            results = query.execute()
             for result in results:
                 ingredients.extend(result["ingredients"])
             return list(set(ingredients))
@@ -327,7 +329,8 @@ class BaseState(Suplex):
     def get_recipes_with_parmesan_cheese(self) -> list:
         # Get recipes with parmesan cheese as an ingredient.
         try:
-            results = self.query.table("recipes").select("*").in_("ingredients", ["parmesan"]).execute()
+            query = self.query.table("recipes").select("*").in_("ingredients", ["parmesan"])
+            results = query.execute()
             return results
         except Exception:
             rx.toast.error("Unable to retrieve recipes.")
