@@ -597,21 +597,6 @@ class Suplex(rx.State):
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
 
     @rx.var
-    def load_bearer_into_query(self) -> None:
-        """
-        A cheeky hack. When all the State modules are loaded, cookies stored
-        in the browser are not yet available. If a user were to have unexpired
-        persistent cookies in the browser, the auth module would have access
-        to those cookies but after it is loaded, the query module would not.
-        The user would be "authenticated" but the query module would not have
-        access to the bearer token. This function loads the bearer token when
-        Vars are calculated which is after all the State modules are loaded, and
-        the cookies are available.
-        """
-        if not self.query.bearer_token and self.access_token:
-            self.query.bearer_token = self.access_token
-
-    @rx.var
     def claims(self) -> Dict[str, Any] | None:
         if self.access_token:
             try:
