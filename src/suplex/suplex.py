@@ -8,11 +8,13 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Self
 
 class Query(rx.Base):
     """
-    Query class for building and executing queries against Supabase. This class provides methods for constructing SQL-like queries.
+    Query class for building and executing queries against Supabase.
+    This class provides methods for constructing SQL-like queries.
+    To build a query, use self.query(self.access_token) from your State class.
     """
 
     # Auth attributes
-    bearer_token: str | None = None
+    _bearer_token: str | None = None
     _api_url: str | None = None
     _api_key: str | None = None
     _headers: dict[str, str] = {}
@@ -26,6 +28,10 @@ class Query(rx.Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if not kwargs.get("bearer_token"):
+            raise ValueError("Bearer token is required for Query class. Pass in when using .query() method.")
+        self._bearer_token = kwargs.get("bearer_token")
+        
         config = rx.config.get_config()
         required_keys = {"api_url", "api_key"}
         missing_keys = required_keys - config.suplex.keys() # type: ignore
@@ -37,6 +43,9 @@ class Query(rx.Base):
 
         # Set default method as get. Can be modified using other methods.
         self._method = "get"
+
+    def query(self, bearer_token: str) -> Self:
+        return Query(bearer_token=bearer_token)
 
     def _add_param(self, key: str, value: Any) -> None:
         self._params[key] = value
