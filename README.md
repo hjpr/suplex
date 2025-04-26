@@ -317,8 +317,7 @@ class BaseState(Suplex):
         # Get all unique ingredients from a collection of recipes.
         try:
             ingredients = []
-            query = self.query.table("recipes").select("ingredients")
-            results = query.execute()
+            results = self.query(self.access_token).table("recipes").select("ingredients").execute()
             for result in results:
                 ingredients.extend(result["ingredients"])
             return list(set(ingredients))
@@ -329,8 +328,7 @@ class BaseState(Suplex):
     def get_recipes_with_parmesan_cheese(self) -> list:
         # Get recipes with parmesan cheese as an ingredient.
         try:
-            query = self.query.table("recipes").select("*").in_("ingredients", ["parmesan"])
-            results = query.execute()
+            results = self.query(self.access_token).table("recipes").select("*").in_("ingredients", ["parmesan"]).execute()
             return results
         except Exception:
             rx.toast.error("Unable to retrieve recipes.")
