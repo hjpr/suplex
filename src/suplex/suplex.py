@@ -19,24 +19,18 @@ class Query(rx.Base):
     To build a query, use self.query(self.access_token) from your State class.
     """
 
-    # Auth attributes
-    _bearer_token: str | None = None
-    _api_url: str | None = None
-    _api_key: str | None = None
-    _headers: dict[str, str] = {}
-
-    # Query building attributes
-    _table: str | None = None
-    _params: Dict[str, Any] = {}
-    _method: str | None = None
-    _data: dict[str, Any] | list | None = None
-    _accept_csv: bool = False
+    _bearer_token: Optional[str]
+    _api_url: Optional[str]
+    _api_key: Optional[str]
+    _headers: Dict[str, str]
+    _table: Optional[str]
+    _params: Dict[str, Any]
+    _method: Optional[str]
+    _data: Optional[Dict[str, Any] | List]
+    _accept_csv: bool
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # Set bearer token from the query function in State.
-        self._bearer_token = kwargs.get("bearer_token")
 
         # Set configs from rxconfig.py
         config = rx.config.get_config()
@@ -45,11 +39,15 @@ class Query(rx.Base):
         if missing_keys:
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
 
+        self._bearer_token = kwargs.get("bearer_token")
         self._api_url = config.suplex["api_url"] # type: ignore
         self._api_key = config.suplex["api_key"] # type: ignore
-
-        # Set default method as get. Can be modified using other methods.
+        self._headers = {}
+        self._table = None
+        self._params = {}
         self._method = "get"
+        self._data = None
+        self._accept_csv = False
 
     def _add_param(self, key: str, value: Any) -> None:
         self._params[key] = value
@@ -386,50 +384,40 @@ class Query(rx.Base):
             "Authorization": f"Bearer {self._bearer_token}",
         }
 
+        if self._method == "get":
+            if not self._params.get("select"):
+                raise ValueError("Must select columns to return or '*' to return all.")
+            response = httpx.get(url, headers=headers, params=self._params, **kwargs)
+        elif self._method == "post":
+            if not self._data and "rpc" not in self._table:
+                raise ValueError("Missing data for request.")
+            response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
+        elif self._method == "put":
+            if not self._data:
+                raise ValueError("Missing data for request.")
+            response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
+        elif self._method == "patch":
+            if not self._data:
+                raise ValueError("Missing data for request.")
+            response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
+        elif self._method == "delete":
+            response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
+        else:
+            raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+        
+        # Raise any HTTP errors
+        response.raise_for_status()
+
+        if self._accept_csv:
+            return response.text # Raw CSV string
+        elif not response.content or response.status_code == 204:
+            return None
+
+        # Return the response
         try:
-            if self._method == "get":
-                if not self._params.get("select"):
-                    raise ValueError("Must select columns to return or '*' to return all.")
-                response = httpx.get(url, headers=headers, params=self._params, **kwargs)
-            elif self._method == "post":
-                if not self._data and "rpc" not in self._table:
-                    raise ValueError("Missing data for request.")
-                response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "put":
-                if not self._data:
-                    raise ValueError("Missing data for request.")
-                response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "patch":
-                if not self._data:
-                    raise ValueError("Missing data for request.")
-                response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
-            elif self._method == "delete":
-                response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
-            else:
-                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
-            
-            # Raise any HTTP errors
-            response.raise_for_status()
-
-            if self._accept_csv:
-                return response.text # Raw CSV string
-            elif not response.content or response.status_code == 204:
-                return None
-
-            # Return the response
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                return response.text
-
-        finally:
-            # Clean up regardless of success/failure
-            self._table = None
-            self._method = "get"
-            self._data = None
-            self._params = {}
-            self._headers = {}
-            self._accept_csv = False
+            return response.json()
+        except json.JSONDecodeError:
+            return response.text
 
     async def async_execute(self, **kwargs) -> List[Dict[str, Any]]:
         """
@@ -452,51 +440,42 @@ class Query(rx.Base):
             "apikey": self._api_key,
             "Authorization": f"Bearer {self._bearer_token}",
         }
+        async with httpx.AsyncClient() as client:
+            if self._method == "get":
+                if not self._params.get("select"):
+                    raise ValueError("Must select columns to return or '*' to return all.")
+                response = await client.get(url, headers=headers, params=self._params, **kwargs)
+            elif self._method == "post":
+                if not self._data and "rpc" not in self._table:
+                    raise ValueError("Missing data for request.")
+                response = await client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "put":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = await client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "patch":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = await client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "delete":
+                response = await client.delete(url, headers=headers, params=self._params, **kwargs)
+            else:
+                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+    
+        # Raise any HTTP errors
+        response.raise_for_status()
+
+        if self._accept_csv:
+            return response.text # Raw CSV string
+        elif not response.content or response.status_code == 204:
+            return None
+
+        # Return the response
         try:
-            async with httpx.AsyncClient() as client:
-                if self._method == "get":
-                    if not self._params.get("select"):
-                        raise ValueError("Must select columns to return or '*' to return all.")
-                    response = await client.get(url, headers=headers, params=self._params, **kwargs)
-                elif self._method == "post":
-                    if not self._data and "rpc" not in self._table:
-                        raise ValueError("Missing data for request.")
-                    response = await client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
-                elif self._method == "put":
-                    if not self._data:
-                        raise ValueError("Missing data for request.")
-                    response = await client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
-                elif self._method == "patch":
-                    if not self._data:
-                        raise ValueError("Missing data for request.")
-                    response = await client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
-                elif self._method == "delete":
-                    response = await client.delete(url, headers=headers, params=self._params, **kwargs)
-                else:
-                    raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+            return response.json()
+        except json.JSONDecodeError:
+            return response.text
         
-            # Raise any HTTP errors
-            response.raise_for_status()
-
-            if self._accept_csv:
-                return response.text # Raw CSV string
-            elif not response.content or response.status_code == 204:
-                return None
-
-            # Return the response
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                return response.text
-
-        finally:
-            # Clean up regardless of success/failure
-            self._table = None
-            self._method = "get"
-            self._data = None
-            self._params = {}
-            self._headers = {}
-            self._accept_csv = False
 
     def _format_array_literal(self, values: List[Any]) -> str:
         if not values:
