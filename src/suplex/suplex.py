@@ -6,6 +6,12 @@ import time
 
 from typing import Any, Callable, Dict, List, Literal, Optional, Self
 
+class BearerTokenExpired(Exception):
+    """
+    Raised when bearer token has expired, and user is requesting an action that would cause the bearer token
+    to return a 401 - Unauthorized if used.
+    """
+
 class Query(rx.Base):
     """
     Query class for building and executing queries against Supabase.
@@ -28,10 +34,11 @@ class Query(rx.Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not kwargs.get("bearer_token"):
-            raise ValueError("Bearer token is required for Query class. Pass in when using .query() method.")
+
+        # Set bearer token from the query function in State.
         self._bearer_token = kwargs.get("bearer_token")
-        
+
+        # Set configs from rxconfig.py
         config = rx.config.get_config()
         required_keys = {"api_url", "api_key"}
         missing_keys = required_keys - config.suplex.keys() # type: ignore
@@ -43,9 +50,6 @@ class Query(rx.Base):
 
         # Set default method as get. Can be modified using other methods.
         self._method = "get"
-
-    def query(self, bearer_token: str) -> Self:
-        return Query(bearer_token=bearer_token)
 
     def _add_param(self, key: str, value: Any) -> None:
         self._params[key] = value
@@ -367,7 +371,7 @@ class Query(rx.Base):
         request at https://www.python-httpx.org/api/#client
         """
         # Raise exceptions
-        if not self.bearer_token:
+        if not self._bearer_token:
             raise ValueError("Request requires a bearer token. User needs to be signed in first, or service_role provided for admin use.")
         if not self._table:
             raise ValueError("No table name was provided for request.")
@@ -379,7 +383,7 @@ class Query(rx.Base):
         headers = {
             **self._headers,
             "apikey": self._api_key,
-            "Authorization": f"Bearer {self.bearer_token}",
+            "Authorization": f"Bearer {self._bearer_token}",
         }
 
         try:
@@ -434,7 +438,7 @@ class Query(rx.Base):
         request at https://www.python-httpx.org/api/#asyncclient.
         """
         # Raise exceptions
-        if not self.bearer_token:
+        if not self._bearer_token:
             raise ValueError("Request requires a bearer token.")
         if not self._table:
             raise ValueError("No table name was provided for request.")
@@ -446,7 +450,7 @@ class Query(rx.Base):
         headers = {
             **self._headers,
             "apikey": self._api_key,
-            "Authorization": f"Bearer {self.bearer_token}",
+            "Authorization": f"Bearer {self._bearer_token}",
         }
         try:
             async with httpx.AsyncClient() as client:
@@ -580,9 +584,6 @@ class Suplex(rx.State):
     _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
     let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
 
-    # Query class
-    query: Query = Query()
-
     # Set for events requiring front-end tracking of loading state.
     is_loading = False
 
@@ -707,6 +708,21 @@ class Suplex(rx.State):
         if self.claims:
             return True if self.claims_expire_at + 10 < time.time() else False
         return False
+    
+    def query(self) -> Query:
+        """
+        Helper function to create a query builder using a standard syntax with access_token refresh if needed.
+        """
+        if self.access_token:
+            if not self.user_token_expired:
+                return Query(bearer_token=self.access_token)
+            elif self.user_token_expired and not self.let_jwt_expire:
+                self.refresh_session()
+                return Query(bearer_token=self.access_token)
+            elif self.user_token_expired and self.let_jwt_expire:
+                raise BearerTokenExpired
+        else:
+            raise ValueError("Query class may not be instantiated without tokens from login.")
         
     def sign_up(
         self,
@@ -902,7 +918,6 @@ class Suplex(rx.State):
         """
         self.access_token = access_token
         self.refresh_token = refresh_token
-        self.query.bearer_token = access_token
     
     def reset_password_email(
         self,
