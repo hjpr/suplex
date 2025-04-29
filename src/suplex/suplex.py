@@ -711,7 +711,11 @@ class Suplex(rx.State):
     
     def query(self) -> Query:
         """
-        Helper function to create a query builder using a standard syntax with access_token refresh if needed.
+        Helper function to create a query builder.
+        Used as part of a query chain ex. self.query().chained().functions().here().execute().
+
+        If let_jwt_expire is True, will throw BearerTokenExpired to handle on frontend.
+        If let_jwt_expire is False, will attempt to refresh session prior to executing query.
         """
         if self.access_token:
             if not self.user_token_expired:
@@ -719,10 +723,12 @@ class Suplex(rx.State):
             elif self.user_token_expired and not self.let_jwt_expire:
                 self.refresh_session()
                 return Query(bearer_token=self.access_token)
-            elif self.user_token_expired and self.let_jwt_expire:
+            else:
                 raise BearerTokenExpired
         else:
-            raise ValueError("Query class may not be instantiated without tokens from login.")
+            raise ValueError(
+                "Query class may not be instantiated without tokens from login. Ensure user is logged in prior to calling .query()"
+            )
         
     def sign_up(
         self,
@@ -1220,54 +1226,3 @@ class Suplex(rx.State):
         )
         
         return response_data
-    
-    def session_manager(
-            self,
-            event: Callable,
-            on_failure: Optional[List[Callable]] | Optional[Callable] | None = None
-            ) -> Callable:
-        """
-        Use this for ensuring that access_token and refresh_token are refreshed prior
-        to executing an event. Optionally pass in an event to trigger if authentication
-        fails. This can be used to redirect user to login page, show an error message
-        etc.
-
-        Tokens are not refreshed if the user has set let_jwt_expire to True in the config.
-
-         - example:
-            on_click=BaseState.session_manager(
-                event=BaseState.get_a_value_from_db(),
-                on_failure=BaseState.redirect_to_login()
-            )
-
-        Args:
-            on_failure: Callback event - or list of events - to call on failed authentication
-
-        Returns:
-            event: The original event if authentication is successful, or not needed
-            on_failure: The provided callback function if authentication fails
-
-        Exceptions:
-            Passes exceptions through if refresh fails and on_failure not provided.
-        """
-        if self.let_jwt_expire:
-            # User doesn't want to refresh tokens automatically
-            if self.user_token_expired:
-                return on_failure
-            else:
-                return event
-        elif self.user_token_expired:
-            # User does want to refresh, and token is expired
-            try:
-                session = self.refresh_session()
-                if session:
-                    return event
-            except Exception as e:
-                if on_failure:
-                    return on_failure
-                else:
-                    # Pass exception through as no on_failure provided
-                    raise e
-        else:
-            # User does want to refresh, and token is not expired
-            return event

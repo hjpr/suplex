@@ -149,27 +149,37 @@ Suplex comes with built-in vars and functions to manage users, user objects, JWT
 
 Check docstrings for params, returns and exceptions.
 
+### Exceptions
+
+Auth requests are handled using the httpx library. Suplex raises no specific exceptions, so all issues with connection will be raised via the httpx exception classes. You can specify handling specific status codes as well (see examples below).
+
+[QuickStart - HTTPX Exceptions](https://www.python-httpx.org/quickstart/#exceptions)
+
+[HTTP response status codes - HTTP | MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status)
+
 ```python
 from suplex import Suplex
+
+import typing
 
 
 class BaseState(Suplex):
     # Login example.
-    def log_in(self, email, password):
+    def log_in(self, email, password) -> typing.Generator:
         try:
             self.sign_in_with_password(email, password)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
             yield rx.toast.error("Invalid email or password.")
         except Exception:
             yield rx.toast.error("Login failed.")
 
     # Update user example.
-    def update_user_info(self, email, phone, password, user_metadata):
+    def update_user_info(self, email, phone, password, user_metadata) -> typing.Generator:
         try:
             self.update_user(email, phone, password, user_metadata)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 403:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 403:
             # Refresh token here and try again.
         except Exception:
             yield rx.toast.error("Updating user info failed.")
@@ -281,57 +291,54 @@ class BaseState(Suplex):
             return rx.redirect("/login")
 ```
 
-### Session Manager
-
-For making database queries where a user's inactivity might cause a token to go stale and raise a 401 status when user clicks a submit or other database action.
-
-Pass the event to a session manager. This manager will attempt to refresh a stale session, and if that fails, you can specify an event to trigger like sending user to re-login.
-
-If let_jwt_expire is passed as True, then the session manager will not refresh the session and will simply trigger the event on_failure if a token is expired.
-
-```python
-# Frontend
-def database_component() -> rx.Component:
-    return rx.button(
-        on_click=BaseState.session_manager(
-            BaseState.retrieve_database_info,
-            on_failure=rx.redirect("/login")
-        )
-)
-```
-
 ---
 
 ## Query
 
-Once a user is signed in, building the query class inside of your BaseClass is how you build a query using the logged in user's credentials. The style of query is similar to the official Supabase python client located at - [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select).
+Queries are built using the query() function to return an instance of the query that is then chained with other functions and then executed. Each query is it's own instance that executes in order for multiple queries to not overwrite data within Reflex's asynchronous event handler.
 
-By creating a new instance of the query for each request, this avoids concurrency issues with Reflex's asyncronous events system.
+The style of query is similar to the official Supabase python client located at - [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select).
+
+If a user's bearer token has expired, Suplex handles refreshing the session as long as within the initial rxconfig.py setup, let_jwt_expire is set to False (the default). If you prefer to manually handle jwt_expiration, or the refresh_session fails to refresh user's tokens properly, the query() function will raise a BearerTokenExpired exception.
 
 ```python
-from suplex import Suplex
+from suplex import Suplex, BearerTokenExpired
+import typing
 
 
 class BaseState(Suplex):
-    def get_all_ingredients(self) -> list:
-        # Get all unique ingredients from a collection of recipes.
+    ingredients: list
+    recipes: list
+
+    def get_all_ingredients(self) -> typing.Generator:
         try:
             ingredients = []
-            results = self.query(self.access_token).table("recipes").select("ingredients").execute()
+            # From 'recipes' table, select row ingredients
+            results = self.query().table("recipes").select("ingredients").execute()
             for result in results:
                 ingredients.extend(result["ingredients"])
-            return list(set(ingredients))
-        except Exception:
-            rx.toast.error("Unable to retrieve ingredients.")
+            # Ensure no duplicate ingredients are present
+            ingredients = list(set(ingredients)
+
+            # Set ingredients to State
+            yield BaseState.setvar("ingredients", ingredients)
+
+        # If users token is expired, redirect to login endpoint
+        except BearerTokenExpired:
+            yield rx.redirect("/login?error=token-expired)
 
 
-    def get_recipes_with_parmesan_cheese(self) -> list:
-        # Get recipes with parmesan cheese as an ingredient.
+    def get_recipes_with_parmesan_cheese(self) -> typing.Generator:
         try:
-            results = self.query(self.access_token).table("recipes").select("*").in_("ingredients", ["parmesan"]).execute()
-            return results
-        except Exception:
-            rx.toast.error("Unable to retrieve recipes.")
+            # From 'recipes' table select all recipes where parmesan is in list of ingredients
+            results = self.query().table("recipes").select("*").in_("ingredients", ["parmesan"]).execute()
+            
+            # Set recipes to state
+            yield BaseState.setvar("recipes", results)
+
+        # If users token is expired, redirect to login endpoint
+        except BearerTokenExpired:
+            yield rx.redirect("/login?error=token-expired)
 ```
 
 ### Query Methods
