@@ -4,7 +4,10 @@ import jwt
 import reflex as rx
 import time
 
+from rich.console import Console
 from typing import Any, Callable, Dict, List, Literal, Optional, Self
+
+console = Console()
 
 class BearerTokenExpired(Exception):
     """
@@ -563,6 +566,31 @@ class Suplex(rx.State):
     _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
     let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
 
+    console.print(
+        "Loaded Suplex configuration:",
+        style="bold cyan"
+    )
+    console.print(
+        f"    API URL: {'\u2713' if _api_url else '\u2717'}",
+        style="bold green" if _api_url else "bold red"
+        )
+    console.print(
+        f"    API Key: {'\u2713' if _api_key else '\u2717'}",
+        style="bold green" if _api_key else "bold red"
+        )
+    console.print(f"    JWT Secret: {'\u2713' if _jwt_secret else '\u2717'}",
+        style="bold green" if _jwt_secret else "bold red"
+    )
+    console.print(
+        f"    Cookie Max Age: {rx.config.get_config().suplex.get('cookie_max_age')}s",
+        style="bold cyan"
+    )
+    console.print(f"    Let JWT Expire: {let_jwt_expire}", style="bold cyan")
+    console.print(
+        f"    Service Role: {"WARNING: SERVICE ROLE ENABLED. ALL QUERIES WILL BE EXECUTED WITH SERVICE ROLE PRIVILEGES." if _service_role else "Not Enabled"}",
+        style="bold red" if _service_role else "bold cyan"
+        )
+
     # Set for events requiring front-end tracking of loading state.
     is_loading = False
 
@@ -595,6 +623,7 @@ class Suplex(rx.State):
         if self.claims:
             return self.claims["sub"]
         return None
+        
     
     @rx.var
     def user_email(self) -> str | None:

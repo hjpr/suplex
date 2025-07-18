@@ -24,6 +24,7 @@ dependencies = [
     "pyjwt>=2.10.1",
     "reflex>=0.7.2",
     "httpx>=0.24.0",
+    "rich>=13.9.4",
 ]
 
 [project.urls]
