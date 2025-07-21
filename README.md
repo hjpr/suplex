@@ -341,6 +341,33 @@ class BaseState(Suplex):
             yield rx.redirect("/login?error=token-expired)
 ```
 
+### Admin Queries
+
+Chaining in .admin() after a .query() will run the query using the service role key you provided in the config file. This will bypass row level security and allows admin access during user actions within reflex that require retrieving or updating information beyond the scope of your user's permissions.
+
+We let a user who has insert privileges upload a message. This would succeed with simple RLS policies.
+
+```python
+self.query().table("messages").insert(message_data).execute()
+```
+Prior to uploading you want to check all usernames prior to sending to make sure that the recipient that user has selected exists.
+
+```python
+user_exists = self.query().table("messages").select("*").eq("user_handle", recipient).limit(1).execute()
+if user_exists:
+  continue_with_sending_message()
+else:
+  notify_no_user_present()
+```
+
+This would fail, so instead with no change to code structure or opening up RLS policies to where we might accidentally allow a user to get access to all user's messages.
+
+```python
+user_exists = self.query().admin().table("messages").select("*").eq("user_handle", recipient).limit(1).execute()
+```
+
+This would succeed as chaining admin() to the query() swaps the user supplied JWT token with the config supplied service_role token BUT ONLY FOR THAT QUERY. This eliminates the scenario where inadvertently standard user queries may be made with a service role token.
+
 ### Query Methods
 
 [Python API Reference | Supabase Docs](https://supabase.com/docs/reference/python/select)

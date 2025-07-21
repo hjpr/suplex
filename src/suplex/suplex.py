@@ -25,6 +25,7 @@ class Query(rx.Base):
     _bearer_token: Optional[str]
     _api_url: Optional[str]
     _api_key: Optional[str]
+    _service_role: Optional[str]
     _headers: Dict[str, str]
     _table: Optional[str]
     _params: Dict[str, Any]
@@ -45,6 +46,7 @@ class Query(rx.Base):
         self._bearer_token = kwargs.get("bearer_token")
         self._api_url = config.suplex["api_url"] # type: ignore
         self._api_key = config.suplex["api_key"] # type: ignore
+        self._service_role = config.suplex.get("service_role", None)
         self._headers = {}
         self._table = None
         self._params = {}
@@ -54,6 +56,20 @@ class Query(rx.Base):
 
     def _add_param(self, key: str, value: Any) -> None:
         self._params[key] = value
+
+    def admin(self) -> Self:
+        """
+        Chain this function inline after .query() to bypass Postgres Row Level Security.
+        """
+        if not self._service_role:
+            console.print(
+                "Unable to perform service level query. A valid service role key needs to be added to config.",
+                style="bold red"
+            )
+            raise Exception("Missing valid service role key.")
+        else:
+            self._bearer_token = self._service_role
+            return Self
 
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
@@ -587,7 +603,7 @@ class Suplex(rx.State):
     )
     console.print(f"    Let JWT Expire: {let_jwt_expire}", style="bold cyan")
     console.print(
-        f"    Service Role: {"WARNING: SERVICE ROLE ENABLED. ALL QUERIES WILL BE EXECUTED WITH SERVICE ROLE PRIVILEGES." if _service_role else "Not Enabled"}",
+        f"    Service Role: {"Service role enabled. USE .admin() with .query() to bypass Postgres RLS." if _service_role else "Not Enabled"}",
         style="bold red" if _service_role else "bold cyan"
         )
 
@@ -737,6 +753,7 @@ class Suplex(rx.State):
             raise ValueError(
                 "Query class may not be instantiated without tokens from login. Ensure user is logged in prior to calling .query()"
             )
+
         
     def sign_up(
         self,
