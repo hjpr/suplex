@@ -5,7 +5,7 @@ import reflex as rx
 import time
 
 from rich.console import Console
-from typing import Any, Callable, Dict, List, Literal, Optional, Self
+from typing import Any, Dict, List, Literal, Optional, Self
 
 console = Console()
 
@@ -26,6 +26,7 @@ class Query(rx.Base):
     _api_url: Optional[str]
     _api_key: Optional[str]
     _service_role: Optional[str]
+    _debug: Optional[str]
     _headers: Dict[str, str]
     _table: Optional[str]
     _params: Dict[str, Any]
@@ -47,6 +48,7 @@ class Query(rx.Base):
         self._api_url = config.suplex["api_url"] # type: ignore
         self._api_key = config.suplex["api_key"] # type: ignore
         self._service_role = config.suplex.get("service_role", None)
+        self._debug = config.suplex.get("debug", False)
         self._headers = {}
         self._table = None
         self._params = {}
@@ -69,7 +71,7 @@ class Query(rx.Base):
             raise Exception("Missing valid service role key.")
         else:
             self._bearer_token = self._service_role
-            return Self
+            return self
 
     def table(self, table: str) -> Self:
         """Targeted table to read from."""
@@ -381,7 +383,7 @@ class Query(rx.Base):
         pass
         return self
 
-    def execute(self, **kwargs) -> List[Dict[str, Any]]:
+    def execute(self, **kwargs) -> List[Dict[str, Any]] | str | None:
         """
         Execute sync request to Supabase. Use async_execute() for async requests.
         Requests use httpx.Client(). See list of available parameters to pass with
@@ -424,6 +426,8 @@ class Query(rx.Base):
         else:
             raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
         
+        if self._debug:
+            console.log(response)
         # Raise any HTTP errors
         response.raise_for_status()
 
@@ -481,6 +485,8 @@ class Query(rx.Base):
             else:
                 raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
     
+        if self._debug:
+            console.log(response)
         # Raise any HTTP errors
         response.raise_for_status()
 
@@ -581,6 +587,7 @@ class Suplex(rx.State):
     _jwt_secret: str = rx.config.get_config().suplex["jwt_secret"]
     _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
     let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
+    debug: bool = rx.config.get_config().suplex.get("debug", False)
 
     console.print(
         "Loaded Suplex configuration:",
@@ -598,12 +605,13 @@ class Suplex(rx.State):
         style="bold green" if _jwt_secret else "bold red"
     )
     console.print(
-        f"    Cookie Max Age: {rx.config.get_config().suplex.get('cookie_max_age')}s",
+        f"    Cookie Max Age: {rx.config.get_config().suplex.get('cookie_max_age')}",
         style="bold cyan"
     )
     console.print(f"    Let JWT Expire: {let_jwt_expire}", style="bold cyan")
+    console.print(f"    Debug Mode: {let_jwt_expire}", style="bold cyan")
     console.print(
-        f"    Service Role: {"Service role enabled. USE .admin() with .query() to bypass Postgres RLS." if _service_role else "Not Enabled"}",
+        f"    Service Role: {"Service role enabled. Chain like .query().admin() to bypass Postgres RLS." if _service_role else "Not Enabled"}",
         style="bold red" if _service_role else "bold cyan"
         )
 
@@ -639,7 +647,6 @@ class Suplex(rx.State):
         if self.claims:
             return self.claims["sub"]
         return None
-        
     
     @rx.var
     def user_email(self) -> str | None:
@@ -730,8 +737,8 @@ class Suplex(rx.State):
         Give 10 seconds of leeway for token expiration for a slow request.
         """
         if self.claims:
-            return True if self.claims_expire_at + 10 < time.time() else False
-        return False
+            return True if self.claims_expire_at - 10 < int(time.time()) else False
+        return True
     
     def query(self) -> Query:
         """
@@ -808,6 +815,8 @@ class Suplex(rx.State):
                 data["channel"] = options.pop("channel")
 
         response = httpx.post(url, headers=headers, json=data)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
         
         return response.json()
@@ -852,6 +861,8 @@ class Suplex(rx.State):
                 data["captcha_token"] = options.pop("captcha_token")
 
         response = httpx.post(url, headers=headers, json=data)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
 
         data = response.json()
@@ -931,7 +942,8 @@ class Suplex(rx.State):
                 data["code_challenge_method"] = options.pop("code_challenge_method")
 
         response = httpx.get(url, headers=headers, params=data)
-
+        if self.debug:
+            console.log(response)
         if response.status_code == 302:
             return response.headers["location"]
         
@@ -999,6 +1011,8 @@ class Suplex(rx.State):
         #         data["captcha_token"] = options.pop("captcha_token")
 
         response = httpx.post(url, headers=headers, json=data)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
         
         return response.json()
@@ -1033,6 +1047,8 @@ class Suplex(rx.State):
                 "Authorization": f"Bearer {self.access_token}",
             },
         )
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
         return response.json()
 
@@ -1087,6 +1103,8 @@ class Suplex(rx.State):
             raise ValueError("At least one attribute (email, phone, password, or user_metadata) must be provided to update.")
 
         response = httpx.put(url, headers=headers, json=data)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
 
         return response.json()
@@ -1120,6 +1138,9 @@ class Suplex(rx.State):
             headers=headers, 
             json={"refresh_token": self.refresh_token}
         )
+        if self.debug:
+            console.log("Token expired, using refresh token to reissue access token.")
+            console.log(response)
         response.raise_for_status()
 
         data = response.json()
@@ -1148,6 +1169,8 @@ class Suplex(rx.State):
             "apikey": self._api_key,
         }
         response = httpx.get(url, headers=headers)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
         return response.json()
 
@@ -1191,10 +1214,9 @@ class Suplex(rx.State):
                 "Authorization": f"Bearer {self.access_token}",
             }
             
-            # Add query parameters to the request if any exist
             response = httpx.post(url, headers=headers, params=query_params)
-            
-            # Up to dev how to handle if server exception occurs, but locally user will be logged out
+            if self.debug:
+                console.log(response)
             response.raise_for_status()
             
             # Only reset local tokens if we're not using "others" scope
@@ -1242,6 +1264,8 @@ class Suplex(rx.State):
         }
         
         response = httpx.post(url, headers=headers, json=data)
+        if self.debug:
+            console.log(response)
         response.raise_for_status()
         
         response_data = response.json()
