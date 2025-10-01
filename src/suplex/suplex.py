@@ -1,6 +1,7 @@
 import httpx
 import json
 import jwt
+from jwt.jwks_client import PyJWKClient
 import reflex as rx
 import time
 
@@ -628,9 +629,25 @@ class Suplex(rx.State):
         if missing_keys:
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
 
+    def _get_jwks_client(self, api_url: str) -> Optional[PyJWKClient]:
+        _jwks_clients: dict[str, PyJWKClient] = {}
+        jwks_url = api_url.rstrip('/') + '/auth/v1/.well-known/jwks.json'
+        client = _jwks_clients.get(jwks_url)
+        if client is None:
+            try:
+                client = PyJWKClient(jwks_url)
+                _jwks_clients[jwks_url] = client
+            except Exception as e: 
+                return None
+        return client
+    
     @rx.var
     def claims(self) -> Dict[str, Any] | None:
-        if self.access_token:
+        if not self.access_token:
+            return None
+        
+        # Legacy API
+        if self._jwt_secret:
             try:
                 claims = jwt.decode(
                     self.access_token,
@@ -641,6 +658,23 @@ class Suplex(rx.State):
                 return claims
             except Exception:
                 return None
+
+        # New API
+        if self._api_url:
+            jwks_client = self._get_jwks_client(self._api_url)
+            if jwks_client:
+                try:
+                    signing_key = jwks_client.get_signing_key_from_jwt(self.access_token)
+                    claims = jwt.decode(
+                        self.access_token,
+                        signing_key.key,
+                        algorithms=["ES256"],
+                        audience="authenticated",
+                    )
+                    return claims  
+                except Exception as e: 
+                    print(f"Error decoding JWT: {e}")
+                    return None
             
     @rx.var
     def user_id(self) -> str | None:

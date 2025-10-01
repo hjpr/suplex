@@ -37,6 +37,11 @@ jwt_secret="your-jwt-secret"
 service_role="your-service-role"
 ```
 
+Note: If you have migrated to the new Supabase API Keys or created your project from October 1st 2025:
+- jwt_secret is no longer necessary
+- In api_key, place your publishable key ('sb_publishable...')
+- Using the new secret api key ('sb_secret...') in place of the service role key for admin operations is currently not working for the REST API, so that is still necessary.
+
 These values can be retrieved from Supabase. Log In >> Choose Project >> Project Settings >> Data API
 
 Then in rxconfig.py add...
