@@ -26,7 +26,9 @@ class Query(rx.Base):
     _bearer_token: Optional[str]
     _api_url: Optional[str]
     _api_key: Optional[str]
-    _service_role: Optional[str]
+    _secret_api_key: Optional[str]
+    _service_role_key: Optional[str]
+    _service_role_enabled: bool
     _debug: Optional[str]
     _headers: Dict[str, str]
     _table: Optional[str]
@@ -48,7 +50,10 @@ class Query(rx.Base):
         self._bearer_token = kwargs.get("bearer_token")
         self._api_url = config.suplex["api_url"] # type: ignore
         self._api_key = config.suplex["api_key"] # type: ignore
-        self._service_role = config.suplex.get("service_role", None)
+        self._secret_api_key = config.suplex.get("secret_api_key", None)
+        self._service_role_key = config.suplex.get("service_role", None)
+        self._service_role_enabled = bool(self._service_role_key or self._secret_api_key)
+
         self._debug = config.suplex.get("debug", False)
         self._headers = {}
         self._table = None
@@ -64,14 +69,18 @@ class Query(rx.Base):
         """
         Chain this function inline after .query() to bypass Postgres Row Level Security.
         """
-        if not self._service_role:
+        if not self._service_role_enabled:
             console.print(
-                "Unable to perform service level query. A valid service role key needs to be added to config.",
+                "Unable to perform service level query. A valid service role key or secret API key need to be added to config.",
                 style="bold red"
             )
-            raise Exception("Missing valid service role key.")
+            raise Exception("Missing valid service role key or secret API key.")
         else:
-            self._bearer_token = self._service_role
+            if self._secret_api_key:
+                self._api_key = self._secret_api_key
+                self._bearer_token = self._secret_api_key
+            elif self._service_role_key:
+                self._bearer_token = self._service_role_key
             return self
 
     def table(self, table: str) -> Self:
@@ -464,6 +473,7 @@ class Query(rx.Base):
             "apikey": self._api_key,
             "Authorization": f"Bearer {self._bearer_token}",
         }
+
         async with httpx.AsyncClient() as client:
             if self._method == "get":
                 if not self._params.get("select"):
@@ -585,8 +595,11 @@ class Suplex(rx.State):
     # Load from config in rxconfig.py
     _api_url: str = rx.config.get_config().suplex["api_url"]
     _api_key: str = rx.config.get_config().suplex["api_key"]
-    _jwt_secret: str = rx.config.get_config().suplex["jwt_secret"]
-    _service_role: str | None = rx.config.get_config().suplex.get("service_role", None)
+    _jwt_secret: str | None = rx.config.get_config().suplex.get("jwt_secret", None)
+    _need_jwt_secret: bool = not (_api_key.startswith(("sb_publishable", "sb_secret")))
+    _secret_api_key: str | None = rx.config.get_config().suplex.get("secret_api_key", None)
+    _service_role_key: str | None = rx.config.get_config().suplex.get("service_role", None)
+    _service_role_enabled: bool = bool(_service_role_key or _secret_api_key)
     let_jwt_expire: bool = rx.config.get_config().suplex.get("let_jwt_expire", False)
     debug: bool = rx.config.get_config().suplex.get("debug", False)
 
@@ -602,9 +615,10 @@ class Suplex(rx.State):
         f"    API Key: {'\u2713' if _api_key else '\u2717'}",
         style="bold green" if _api_key else "bold red"
         )
-    console.print(f"    JWT Secret: {'\u2713' if _jwt_secret else '\u2717'}",
-        style="bold green" if _jwt_secret else "bold red"
-    )
+    if _need_jwt_secret:
+        console.print(f"    JWT Secret: {'\u2713' if _jwt_secret else '\u2717'}",
+            style="bold green" if _jwt_secret else "bold red"
+        )
     console.print(
         f"    Cookie Max Age: {rx.config.get_config().suplex.get('cookie_max_age')}",
         style="bold cyan"
@@ -612,8 +626,8 @@ class Suplex(rx.State):
     console.print(f"    Let JWT Expire: {let_jwt_expire}", style="bold cyan")
     console.print(f"    Debug Mode: {let_jwt_expire}", style="bold cyan")
     console.print(
-        f"    Service Role: {"Service role enabled. Chain like .query().admin() to bypass Postgres RLS." if _service_role else "Not Enabled"}",
-        style="bold red" if _service_role else "bold cyan"
+        f"    Service Role: {"Service role enabled. Chain like .query().admin() to bypass Postgres RLS." if _service_role_enabled else "Not Enabled"}",
+        style="bold red" if _service_role_enabled else "bold cyan"
         )
 
     # Set for events requiring front-end tracking of loading state.
@@ -624,7 +638,12 @@ class Suplex(rx.State):
 
         # Load our config
         config = rx.config.get_config()
-        required_keys = {"api_url", "api_key", "jwt_secret"}
+
+        if self._need_jwt_secret:
+            required_keys = {"api_url", "api_key", "jwt_secret"}
+        else:
+            required_keys = {"api_url", "api_key"}
+
         missing_keys = required_keys - config.suplex.keys() # type: ignore
         if missing_keys:
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
@@ -660,7 +679,7 @@ class Suplex(rx.State):
                 return None
 
         # New API
-        if self._api_url:
+        if self._api_url and not self._need_jwt_secret:
             jwks_client = self._get_jwks_client(self._api_url)
             if jwks_client:
                 try:
@@ -1220,7 +1239,7 @@ class Suplex(rx.State):
             options: Additional options for logout:
                 - scope: How the user should be logged out:
                     - "global": Log out from all active sessions across all devices
-                    - "local": Log out from the current session only (default)
+                    - "local": Log out from the current session only
                     - "others": Log out from all other sessions except the current one
         
         Raises:
