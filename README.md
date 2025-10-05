@@ -30,6 +30,7 @@ uv add suplex
 
 In your project top-level directory, where rxconfig.py is located create a .env file as follows...
 
+Legacy Supabase API
 ```bash
 api_url="your-api-url"
 api_key="your-api-key"
@@ -37,7 +38,18 @@ jwt_secret="your-jwt-secret"
 service_role="your-service-role"
 ```
 
-These values can be retrieved from Supabase. Log In >> Choose Project >> Project Settings >> Data API
+New API
+```bash
+api_url="your-api-url"
+api_key="your-api-key"
+secret_api_key="your-secret-api-key"
+```
+
+Note: The latter Option is for users who have migrated to the new Supabase API and JWT Keys or created a new project from October 1st 2025:
+- jwt_secret is no longer necessary
+- The secret api key ('sb_secret...') replaces the role of the former service_role_key.
+
+These values can be retrieved from Supabase. Log In >> Choose Project >> Project Settings
 
 Then in rxconfig.py add...
 
@@ -48,15 +60,17 @@ load_dotenv()
 
 api_key = os.getenv("api_key")
 api_url = os.getenv("api_url")
-jwt_secret = os.getenv("jwt_secret")
-# service_role = os.getenv("service_role") Only for admin use.
+jwt_secret = os.getenv("jwt_secret") # Remove if using the new API
+# For admin use
+# service_role = os.getenv("service_role") # Old API
+# or secret_api_key = os.getenv("secret_api_key") # New API
 
 config = rx.Config(
     # You may have a few entries here...
     suplex={
         "api_url": api_url,
         "api_key": api_key,
-        "jwt_secret": jwt_secret
+        "jwt_secret": jwt_secret # Remove if using the new API
         "let_jwt_expire": False # (Optional: Default is False) Specify if tokens auto refresh. Can set to True for tighter/manual control of token refresh
         "cookie_max_age": 3600 # (Optional: Default is None) Seconds until cookie expires, otherwise is a session cookie.
         "debug": False # (Optional: Default is False) Prints responses for debugging server errors.
