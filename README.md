@@ -74,9 +74,13 @@ config = rx.Config(
         "let_jwt_expire": False # (Optional: Default is False) Specify if tokens auto refresh. Can set to True for tighter/manual control of token refresh
         "cookie_max_age": 3600 # (Optional: Default is None) Seconds until cookie expires, otherwise is a session cookie.
         "debug": False # (Optional: Default is False) Prints responses for debugging server errors.
-    } 
-) 
+    }
+)
 ```
+
+### Self-Hosted Supabase
+
+If you're running your own Supabase instance, simply set `api_url` to your self-hosted address (e.g. `http://192.168.1.100:8000`). No additional configuration is needed.
 
 ---
 
