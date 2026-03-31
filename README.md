@@ -498,4 +498,4 @@ Generally this module is attempting to do the dirty work of setting up a request
 
 If there is a feature you'd like added that keeps the spirit of flexibility but adds functionality then please let me know and I'll be happy to extend this module.
 
-Documentation and structure of this project is **very early** so expect changes as I integrate this project and test all the features thoroughly.
+Documentation and structure of this project is **early** so expect changes as I integrate this project and test all the features thoroughly.

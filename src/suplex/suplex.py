@@ -575,6 +575,9 @@ class Suplex(rx.State):
         - logout: Log out the current user and invalidate the session.
 
     """
+    # Class-level JWKS client cache shared across all instances (keyed by JWKS URL).
+    _jwks_clients: dict = {}
+
     access_token: rx.Cookie | str = rx.Cookie(
         name="access_token",
         path="/",
@@ -624,7 +627,7 @@ class Suplex(rx.State):
         style="bold cyan"
     )
     console.print(f"    Let JWT Expire: {let_jwt_expire}", style="bold cyan")
-    console.print(f"    Debug Mode: {let_jwt_expire}", style="bold cyan")
+    console.print(f"    Debug Mode: {debug}", style="bold cyan")
     console.print(
         f"    Service Role: {"Service role enabled. Chain like .query().admin() to bypass Postgres RLS." if _service_role_enabled else "Not Enabled"}",
         style="bold red" if _service_role_enabled else "bold cyan"
@@ -649,14 +652,13 @@ class Suplex(rx.State):
             raise ValueError(f"Missing required Suplex configuration keys: {', '.join(missing_keys)}")
 
     def _get_jwks_client(self, api_url: str) -> Optional[PyJWKClient]:
-        _jwks_clients: dict[str, PyJWKClient] = {}
         jwks_url = api_url.rstrip('/') + '/auth/v1/.well-known/jwks.json'
-        client = _jwks_clients.get(jwks_url)
+        client = Suplex._jwks_clients.get(jwks_url)
         if client is None:
             try:
                 client = PyJWKClient(jwks_url)
-                _jwks_clients[jwks_url] = client
-            except Exception as e: 
+                Suplex._jwks_clients[jwks_url] = client
+            except Exception:
                 return None
         return client
     
@@ -710,7 +712,7 @@ class Suplex(rx.State):
     @rx.var
     def user_phone(self) -> str | None:
         if self.claims:
-            return self.claims["phone"]
+            return self.claims.get("phone")
         return None
     
     @rx.var
@@ -749,26 +751,26 @@ class Suplex(rx.State):
     def claims_session_id(self) -> str | None:
         """Unique identifier for the session."""
         if self.claims:
-            return self.claims["session_id"]
+            return self.claims.get("session_id")
         return None
-    
+
     @rx.var
     def user_metadata(self) -> Dict[str, Any] | None:
         if self.claims:
-            return self.claims["user_metadata"]
+            return self.claims.get("user_metadata")
         return None
-    
+
     @rx.var
     def app_metadata(self) -> Dict[str, Any] | None:
         if self.claims:
-            return self.claims["app_metadata"]
+            return self.claims.get("app_metadata")
         return None
-    
+
     @rx.var
     def user_aal(self) -> Literal["aal1", "aal2"] | None:
         """aal1 is 1-factor auth, aal2 is 2-factor auth."""
         if self.claims:
-            return self.claims["aal"]
+            return self.claims.get("aal")
         return None
             
     @rx.var
@@ -780,7 +782,7 @@ class Suplex(rx.State):
     @rx.var
     def user_is_anonymous(self) -> bool:
         if self.claims:
-            return self.claims["is_anonymous"]
+            return self.claims.get("is_anonymous", False)
         return False
     
     @rx.var
