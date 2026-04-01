@@ -5,6 +5,7 @@ from jwt.jwks_client import PyJWKClient
 import reflex as rx
 import time
 
+from pydantic import BaseModel
 from rich.console import Console
 from typing import Any, Dict, List, Literal, Optional, Self
 
@@ -16,7 +17,7 @@ class BearerTokenExpired(Exception):
     to return a 401 - Unauthorized if used.
     """
 
-class Query(rx.Base):
+class Query(BaseModel):
     """
     Query class for building and executing queries against Supabase.
     This class provides methods for constructing SQL-like queries.
@@ -700,51 +701,51 @@ class Suplex(rx.State):
     @rx.var
     def user_id(self) -> str | None:
         if self.claims:
-            return self.claims["sub"]
+            return self.claims.get("sub")
         return None
-    
+
     @rx.var
     def user_email(self) -> str | None:
         if self.claims:
-            return self.claims["email"]
+            return self.claims.get("email")
         return None
-    
+
     @rx.var
     def user_phone(self) -> str | None:
         if self.claims:
             return self.claims.get("phone")
         return None
-    
+
     @rx.var
     def user_audience(self) -> str | None:
         if self.claims:
-            return self.claims["aud"]
+            return self.claims.get("aud")
         return None
-    
+
     @rx.var
     def user_role(self) -> str | None:
         if self.claims:
-            return self.claims["role"]
+            return self.claims.get("role")
         return None
-    
+
     @rx.var
     def claims_issuer(self) -> str | None:
         if self.claims:
-            return self.claims["iss"]
+            return self.claims.get("iss")
         return None
-    
+
     @rx.var
     def claims_expire_at(self) -> int | None:
         """Unix timestamp of when the token expires."""
         if self.claims:
-            return self.claims["exp"]
+            return self.claims.get("exp")
         return None
-    
+
     @rx.var
     def claims_issued_at(self) -> int | None:
         """Unix timestamp of when the token was issued."""
         if self.claims:
-            return self.claims["iat"]
+            return self.claims.get("iat")
         return None
     
     @rx.var
@@ -776,7 +777,7 @@ class Suplex(rx.State):
     @rx.var
     def user_is_authenticated(self) -> bool:
         if self.claims:
-            return True if self.claims["aud"] == "authenticated" else False
+            return self.claims.get("aud") == "authenticated"
         return False
     
     @rx.var
@@ -815,7 +816,6 @@ class Suplex(rx.State):
             raise ValueError(
                 "Query class may not be instantiated without tokens from login. Ensure user is logged in prior to calling .query()"
             )
-
         
     def sign_up(
         self,
