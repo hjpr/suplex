@@ -631,7 +631,7 @@ wheels = [
 
 [[package]]
 name = "suplex"
-version = "0.2.8"
+version = "0.2.9a0"
 source = { editable = "." }
 dependencies = [
     { name = "dotenv" },
