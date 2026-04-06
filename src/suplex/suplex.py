@@ -730,6 +730,7 @@ class Suplex(rx.State):
 
     @rx.var
     def claims_issuer(self) -> str | None:
+        """Entity issuing the claim."""
         if self.claims:
             return self.claims.get("iss")
         return None

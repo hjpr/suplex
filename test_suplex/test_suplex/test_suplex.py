@@ -83,6 +83,7 @@ class TestState(Suplex):
             {"section": "", "label": "Anonymous", "value": str(self.user_is_anonymous)},
             {"section": "Session", "label": "", "value": ""},
             {"section": "", "label": "Session ID", "value": fmt(self.claims_session_id)},
+            {"section": "", "label": "Claims Issued By", "value": fmt(self.claims_issuer)},
             {"section": "", "label": "Issued At", "value": fmt(self.claims_issued_at)},
             {"section": "", "label": "Expires At", "value": fmt(self.claims_expire_at)},
             {"section": "", "label": "Issuer", "value": fmt(self.claims_issuer)},
