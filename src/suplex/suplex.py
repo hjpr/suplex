@@ -11,6 +11,14 @@ from typing import Any, Dict, List, Literal, Optional, Self
 
 console = Console()
 
+# Increase default timeouts for PostgREST idle -> wake-up due to inactivity.
+_TIMEOUT = httpx.Timeout(
+    connect=15.0,
+    read=30.0,
+    write=10.0,
+    pool=5.0
+)
+
 class BearerTokenExpired(Exception):
     """
     Raised when bearer token has expired, and user is requesting an action that would cause the bearer token
@@ -415,27 +423,27 @@ class Query(BaseModel):
             "apikey": self._api_key,
             "Authorization": f"Bearer {self._bearer_token}",
         }
-
-        if self._method == "get":
-            if not self._params.get("select"):
-                raise ValueError("Must select columns to return or '*' to return all.")
-            response = httpx.get(url, headers=headers, params=self._params, **kwargs)
-        elif self._method == "post":
-            if not self._data and "rpc" not in self._table:
-                raise ValueError("Missing data for request.")
-            response = httpx.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "put":
-            if not self._data:
-                raise ValueError("Missing data for request.")
-            response = httpx.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "patch":
-            if not self._data:
-                raise ValueError("Missing data for request.")
-            response = httpx.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
-        elif self._method == "delete":
-            response = httpx.delete(url, headers=headers, params=self._params, **kwargs)
-        else:
-            raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
+        with httpx.Client(timeout=_TIMEOUT, transport=httpx.HTTPTransport(retries=1)) as client:
+            if self._method == "get":
+                if not self._params.get("select"):
+                    raise ValueError("Must select columns to return or '*' to return all.")
+                response = client.get(url, headers=headers, params=self._params, **kwargs)
+            elif self._method == "post":
+                if not self._data and "rpc" not in self._table:
+                    raise ValueError("Missing data for request.")
+                response = client.post(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "put":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = client.put(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "patch":
+                if not self._data:
+                    raise ValueError("Missing data for request.")
+                response = client.patch(url, headers=headers, params=self._params, json=self._data, **kwargs)
+            elif self._method == "delete":
+                response = client.delete(url, headers=headers, params=self._params, **kwargs)
+            else:
+                raise ValueError("Unrecognized method. Must be one of: get, post, put, patch, delete.")
         
         if self._debug:
             console.log(response)
@@ -475,7 +483,7 @@ class Query(BaseModel):
             "Authorization": f"Bearer {self._bearer_token}",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, transport=httpx.AsyncHTTPTransport(retries=1)) as client:
             if self._method == "get":
                 if not self._params.get("select"):
                     raise ValueError("Must select columns to return or '*' to return all.")

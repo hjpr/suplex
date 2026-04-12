@@ -6,7 +6,7 @@ load_dotenv()
 import reflex as rx
 
 config = rx.Config(
-    app_name="test_suplex",
+    app_name="test_auth",
     plugins=[
         rx.plugins.sitemap.SitemapPlugin(),
         rx.plugins.TailwindV4Plugin(),
